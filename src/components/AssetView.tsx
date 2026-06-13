@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   Flex,
-  SegmentedControl,
   Text,
 } from "@radix-ui/themes";
 import {
@@ -45,8 +44,21 @@ import {
 import AssetStatsModal from "./AssetStatsModal";
 import AssetDetailsDialog from "./AssetDetailsDialog";
 
-type SortMode = "risk" | "monthly" | "remaining" | "expiry" | "name";
-type FilterMode = "all" | "high" | "expiring" | "manual" | "ignored";
+type SortMode =
+  | "risk"
+  | "monthly"
+  | "remaining"
+  | "expiry"
+  | "efficiency"
+  | "name";
+type FilterMode =
+  | "all"
+  | "high"
+  | "expiring"
+  | "manual"
+  | "ignored"
+  | "metadata"
+  | "underused";
 type ProviderSortMode = "monthly" | "remaining" | "risk" | "count";
 
 interface AssetViewProps {
@@ -68,6 +80,9 @@ interface AssetRow {
   trafficPercentage: number;
   cpuUsage: number;
   memoryUsage: number;
+  efficiencyScore: number;
+  underused: boolean;
+  metadataMissingFields: string[];
   riskScore: number;
   riskLevel: "high" | "medium" | "low";
   riskReasons: string[];
@@ -107,6 +122,56 @@ const KpiCard = ({
       <Text size="1" color="gray">
         {hint}
       </Text>
+    </Flex>
+  </Card>
+);
+
+const ActionQueueCard = ({
+  label,
+  count,
+  hint,
+  preview,
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  count: number;
+  hint: string;
+  preview: string[];
+  actionLabel: string;
+  onAction: () => void;
+}) => (
+  <Card className="border border-[var(--accent-4)] bg-[var(--accent-1)]">
+    <Flex direction="column" gap="3">
+      <Flex align="center" justify="between" gap="3">
+        <Flex direction="column" gap="1">
+          <Text size="2" color="gray">
+            {label}
+          </Text>
+          <Text size="5" weight="bold">
+            {count}
+          </Text>
+        </Flex>
+        <Button size="1" variant="soft" onClick={onAction}>
+          {actionLabel}
+        </Button>
+      </Flex>
+      <Text size="1" color="gray">
+        {hint}
+      </Text>
+      <Flex gap="2" wrap="wrap">
+        {preview.length === 0 ? (
+          <Badge color="green" variant="soft">
+            Healthy
+          </Badge>
+        ) : (
+          preview.map((item) => (
+            <Badge key={item} color="gray" variant="soft">
+              {item}
+            </Badge>
+          ))
+        )}
+      </Flex>
     </Flex>
   </Card>
 );
@@ -159,8 +224,30 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           ? (live.ram.used / node.mem_total) * 100
           : 0;
       const daysRemaining = getDaysUntilExpiry(node.expired_at);
+      const metadataMissingFields: string[] = [];
       const riskReasons: string[] = [];
       let riskScore = 0;
+
+      if (!node.provider?.trim()) {
+        metadataMissingFields.push(
+          t("asset.provider", { defaultValue: "Provider" })
+        );
+      }
+      if (!node.business_role?.trim()) {
+        metadataMissingFields.push(
+          t("asset.role", { defaultValue: "Role" })
+        );
+      }
+      if (!node.currency_code?.trim()) {
+        metadataMissingFields.push(
+          t("asset.currencyCode", { defaultValue: "Currency code" })
+        );
+      }
+      if (!node.expired_at) {
+        metadataMissingFields.push(
+          t("asset.expiry", { defaultValue: "Expiry date" })
+        );
+      }
 
       if (!online) {
         riskReasons.push(
@@ -216,6 +303,14 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           t("asset.ignoredLabel", { defaultValue: "Ignored from cost rollups" })
         );
       }
+      if (metadataMissingFields.length > 0) {
+        riskReasons.push(
+          t("asset.riskMetadataGap", {
+            defaultValue: "Metadata is incomplete for this asset",
+          })
+        );
+        riskScore += 1;
+      }
       if (!node.capability_ping) {
         riskReasons.push(
           t("asset.riskNoPing", {
@@ -241,6 +336,32 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         riskScore += 1;
       }
 
+      const utilizationSignal = Math.max(
+        cpuUsage / 100,
+        memoryUsage / 100,
+        Math.min(trafficStats.percentage, 100) / 100
+      );
+      const efficiencyScore =
+        getMonthlyCost(node.price, node.billing_cycle) * (1 - utilizationSignal);
+      const underused =
+        online &&
+        node.price > 0 &&
+        !node.asset_ignored &&
+        daysRemaining !== null &&
+        daysRemaining > 30 &&
+        cpuUsage < 10 &&
+        memoryUsage < 25 &&
+        trafficStats.percentage < 15;
+
+      if (underused) {
+        riskReasons.push(
+          t("asset.riskUnderused", {
+            defaultValue: "Low utilization relative to ongoing spend",
+          })
+        );
+        riskScore += 2;
+      }
+
       const riskLevel =
         riskScore >= 5 ? "high" : riskScore >= 2 ? "medium" : "low";
 
@@ -264,6 +385,9 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         trafficPercentage: trafficStats.percentage,
         cpuUsage,
         memoryUsage,
+        efficiencyScore,
+        underused,
+        metadataMissingFields,
         riskScore,
         riskLevel,
         riskReasons,
@@ -287,6 +411,10 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           );
         case "ignored":
           return Boolean(row.node.asset_ignored);
+        case "metadata":
+          return row.metadataMissingFields.length > 0;
+        case "underused":
+          return row.underused;
         case "all":
         default:
           return true;
@@ -307,6 +435,8 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           const bDays = b.daysRemaining ?? Number.MAX_SAFE_INTEGER;
           return aDays - bDays;
         }
+        case "efficiency":
+          return b.efficiencyScore - a.efficiencyScore;
         case "name":
           return a.node.name.localeCompare(b.node.name);
         case "risk":
@@ -682,6 +812,22 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
     [baseCurrencyOptions, statsSettings.baseCurrency, statsSettings.rates]
   );
 
+  const queueItems = useMemo(() => {
+    const renewalRows = sortedRows.filter(
+      (row) => !row.node.asset_ignored && row.daysRemaining !== null && row.daysRemaining <= 7
+    );
+    const metadataRows = sortedRows.filter(
+      (row) => row.metadataMissingFields.length > 0
+    );
+    const underusedRows = sortedRows.filter((row) => row.underused);
+
+    return {
+      renewalRows,
+      metadataRows,
+      underusedRows,
+    };
+  }, [sortedRows]);
+
   const highRiskCount = filteredRows.filter(
     (row) => row.riskLevel === "high"
   ).length;
@@ -775,6 +921,48 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         />
       </div>
 
+      <div className="grid gap-3 lg:grid-cols-3">
+        <ActionQueueCard
+          label={t("asset.queueRenewals", {
+            defaultValue: "Needs renewal attention",
+          })}
+          count={queueItems.renewalRows.length}
+          hint={t("asset.queueRenewalsHint", {
+            defaultValue:
+              "Expiring within 7 days and usually worth reviewing first.",
+          })}
+          preview={queueItems.renewalRows.slice(0, 3).map((row) => row.node.name)}
+          actionLabel={t("asset.queueReview", { defaultValue: "Review" })}
+          onAction={() => setFilterMode("expiring")}
+        />
+        <ActionQueueCard
+          label={t("asset.queueMetadata", {
+            defaultValue: "Missing asset metadata",
+          })}
+          count={queueItems.metadataRows.length}
+          hint={t("asset.queueMetadataHint", {
+            defaultValue:
+              "Provider, role, currency code, or expiry date is still missing.",
+          })}
+          preview={queueItems.metadataRows.slice(0, 3).map((row) => row.node.name)}
+          actionLabel={t("asset.queueReview", { defaultValue: "Review" })}
+          onAction={() => setFilterMode("metadata")}
+        />
+        <ActionQueueCard
+          label={t("asset.queueUnderused", {
+            defaultValue: "Paid but underused",
+          })}
+          count={queueItems.underusedRows.length}
+          hint={t("asset.queueUnderusedHint", {
+            defaultValue:
+              "Online assets with ongoing spend but persistently low utilization.",
+          })}
+          preview={queueItems.underusedRows.slice(0, 3).map((row) => row.node.name)}
+          actionLabel={t("asset.queueReview", { defaultValue: "Review" })}
+          onAction={() => setFilterMode("underused")}
+        />
+      </div>
+
       <Card className="border border-[var(--accent-4)] bg-[var(--accent-1)]">
         <Flex
           direction={{ initial: "column", lg: "row" }}
@@ -798,53 +986,68 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
               <Text size="1" color="gray">
                 {t("asset.sortBy", { defaultValue: "Sort by" })}
               </Text>
-              <SegmentedControl.Root
+              <select
                 value={sortMode}
-                onValueChange={(value) => setSortMode(value as SortMode)}
-                size="1"
+                onChange={(event) => setSortMode(event.target.value as SortMode)}
+                className="h-9 min-w-[170px] rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
               >
-                <SegmentedControl.Item value="risk">
+                <option value="risk">
                   {t("asset.sortRisk", { defaultValue: "Risk" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="monthly">
+                </option>
+                <option value="monthly">
                   {t("asset.sortMonthly", { defaultValue: "Monthly" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="remaining">
+                </option>
+                <option value="remaining">
                   {t("asset.sortRemaining", { defaultValue: "Residual" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="expiry">
+                </option>
+                <option value="expiry">
                   {t("asset.sortExpiry", { defaultValue: "Expiry" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="name">
+                </option>
+                <option value="efficiency">
+                  {t("asset.sortEfficiency", {
+                    defaultValue: "Cost efficiency",
+                  })}
+                </option>
+                <option value="name">
                   {t("asset.sortName", { defaultValue: "Name" })}
-                </SegmentedControl.Item>
-              </SegmentedControl.Root>
+                </option>
+              </select>
             </Flex>
             <Flex direction="column" gap="1">
               <Text size="1" color="gray">
                 {t("asset.filterBy", { defaultValue: "Filter" })}
               </Text>
-              <SegmentedControl.Root
+              <select
                 value={filterMode}
-                onValueChange={(value) => setFilterMode(value as FilterMode)}
-                size="1"
+                onChange={(event) => setFilterMode(event.target.value as FilterMode)}
+                className="h-9 min-w-[170px] rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
               >
-                <SegmentedControl.Item value="all">
+                <option value="all">
                   {t("common.all", { defaultValue: "All" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="high">
+                </option>
+                <option value="high">
                   {t("asset.filterHigh", { defaultValue: "High risk" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="expiring">
+                </option>
+                <option value="expiring">
                   {t("asset.filterExpiring", { defaultValue: "Expiring" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="manual">
+                </option>
+                <option value="manual">
                   {t("asset.filterManual", { defaultValue: "Manual renew" })}
-                </SegmentedControl.Item>
-                <SegmentedControl.Item value="ignored">
+                </option>
+                <option value="ignored">
                   {t("asset.filterIgnored", { defaultValue: "Ignored" })}
-                </SegmentedControl.Item>
-              </SegmentedControl.Root>
+                </option>
+                <option value="metadata">
+                  {t("asset.filterMetadata", {
+                    defaultValue: "Metadata gaps",
+                  })}
+                </option>
+                <option value="underused">
+                  {t("asset.filterUnderused", {
+                    defaultValue: "Underused",
+                  })}
+                </option>
+              </select>
             </Flex>
           </Flex>
         </Flex>
@@ -1083,6 +1286,13 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
                               })}
                             </Badge>
                           )}
+                          {row.metadataMissingFields.length > 0 && (
+                            <Badge color="amber" variant="soft">
+                              {t("asset.metadataShort", {
+                                defaultValue: "Metadata",
+                              })}
+                            </Badge>
+                          )}
                           {!row.node.capability_terminal &&
                             !row.node.capability_remote_exec && (
                               <Badge color="gray" variant="soft">
@@ -1091,6 +1301,13 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
                                 })}
                               </Badge>
                             )}
+                          {row.underused && (
+                            <Badge color="blue" variant="soft">
+                              {t("asset.underusedShort", {
+                                defaultValue: "Idle spend",
+                              })}
+                            </Badge>
+                          )}
                         </Flex>
                         <Text size="1" color="gray">
                           {row.riskReasons[0] ||
