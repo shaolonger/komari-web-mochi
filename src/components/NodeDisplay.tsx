@@ -24,8 +24,16 @@ import NodeEarthView from "./NodeEarthView";
 import ViewModeSelector from "./ViewModeSelector";
 import ModernGridVirtual from "./ModernGridVirtual";
 import { usePublicInfo } from "@/contexts/PublicInfoContext";
+import AssetView from "./AssetView";
 
-export type ViewMode = "modern" | "compact" | "classic" | "detailed" | "task" | "earth";
+export type ViewMode =
+  | "modern"
+  | "compact"
+  | "classic"
+  | "detailed"
+  | "task"
+  | "earth"
+  | "asset";
 
 const VIEW_MODES: ViewMode[] = [
   "modern",
@@ -34,6 +42,7 @@ const VIEW_MODES: ViewMode[] = [
   "detailed",
   "task",
   "earth",
+  "asset",
 ];
 
 const clampNumber = (value: number, min: number, max: number) => {
@@ -85,7 +94,7 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
   // 获取配置的默认视图模式，并转换为小写
   const configDefaultMode = publicInfo?.theme_settings?.defaultViewMode?.toLowerCase() as ViewMode | undefined;
   const defaultMode: ViewMode = configDefaultMode && 
-    ["modern", "compact", "classic", "detailed", "task", "earth"].includes(configDefaultMode) 
+    ["modern", "compact", "classic", "detailed", "task", "earth", "asset"].includes(configDefaultMode)
     ? configDefaultMode : "modern";
   
   const [viewMode, setViewMode] = useLocalStorage<ViewMode>(
@@ -247,7 +256,10 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
 
   const totalFiltered = sortedFilteredNodes.length;
   const paginationApplies =
-    paginationEnabled && safeViewMode !== "task" && safeViewMode !== "earth";
+    paginationEnabled &&
+    safeViewMode !== "task" &&
+    safeViewMode !== "earth" &&
+    safeViewMode !== "asset";
 
   const totalPages = paginationApplies
     ? totalFiltered > 0
@@ -497,6 +509,9 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
           )}
           {safeViewMode === "earth" && (
             <NodeEarthView nodes={sortedFilteredNodes} liveData={liveData} />
+          )}
+          {safeViewMode === "asset" && (
+            <AssetView nodes={sortedFilteredNodes} liveData={liveData} />
           )}
         </>
       )}

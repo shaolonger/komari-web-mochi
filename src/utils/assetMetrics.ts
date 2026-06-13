@@ -4,13 +4,27 @@ export interface AssetBillingLike {
   price?: number | null;
   billing_cycle?: number | null;
   currency?: string | null;
+  currency_code?: string | null;
   expired_at?: string | number | Date | null;
+  asset_ignored?: boolean | null;
+  provider?: string | null;
 }
 
 export interface AssetExpiryInfo {
   color: "red" | "orange" | "green";
   text: string;
   daysRemaining: number;
+}
+
+export interface AssetCurrencySummary {
+  key: string;
+  label: string;
+  count: number;
+  monthly: number;
+  annualized: number;
+  remaining: number;
+  renewal7d: number;
+  renewal30d: number;
 }
 
 const LONG_TERM_DAYS = 36500;
@@ -114,4 +128,72 @@ export function getRemainingValue(
   const daysRemaining = getDaysUntilExpiry(asset.expired_at, now);
   if (daysRemaining === null || daysRemaining <= 0) return 0;
   return Number(asset.price) * (daysRemaining / cycle);
+}
+
+export function getRenewalExposure(
+  assets: AssetBillingLike[],
+  windowDays: number,
+  now = new Date()
+): number {
+  return assets.reduce((total, asset) => {
+    if (!isBillableAsset(asset.price) || asset.asset_ignored) return total;
+    const daysRemaining = getDaysUntilExpiry(asset.expired_at, now);
+    if (daysRemaining === null || daysRemaining <= 0 || daysRemaining > windowDays) {
+      return total;
+    }
+    return total + Number(asset.price);
+  }, 0);
+}
+
+export function getCurrencyLabel(asset: Pick<AssetBillingLike, "currency" | "currency_code">): string {
+  return asset.currency || asset.currency_code || "?";
+}
+
+export function groupAssetFinancials(
+  assets: AssetBillingLike[],
+  now = new Date()
+): AssetCurrencySummary[] {
+  const grouped = new Map<string, AssetCurrencySummary>();
+
+  assets.forEach((asset) => {
+    if (asset.asset_ignored) return;
+    const key = asset.currency_code || asset.currency || "?";
+    const current = grouped.get(key) ?? {
+      key,
+      label: getCurrencyLabel(asset),
+      count: 0,
+      monthly: 0,
+      annualized: 0,
+      remaining: 0,
+      renewal7d: 0,
+      renewal30d: 0,
+    };
+
+    current.count += 1;
+    current.monthly += getMonthlyCost(asset.price, asset.billing_cycle);
+    current.annualized += getAnnualizedCost(asset.price, asset.billing_cycle);
+    current.remaining += getRemainingValue(asset, now);
+    current.renewal7d += getRenewalExposure([asset], 7, now);
+    current.renewal30d += getRenewalExposure([asset], 30, now);
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => b.monthly - a.monthly);
+}
+
+export function formatCurrencyAmount(
+  value: number,
+  label: string
+): string {
+  return `${label}${value.toFixed(2)}`;
+}
+
+export function formatCurrencySummary(
+  groups: AssetCurrencySummary[],
+  field: keyof Pick<AssetCurrencySummary, "monthly" | "annualized" | "remaining" | "renewal7d" | "renewal30d">
+): string {
+  if (!groups.length) return "0";
+  return groups
+    .map((group) => formatCurrencyAmount(group[field], group.label))
+    .join(" · ");
 }

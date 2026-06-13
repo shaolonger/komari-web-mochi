@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Check
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { ViewMode } from "./NodeDisplay";
 import "./ViewModeSelector.css";
 
@@ -29,36 +30,42 @@ const ViewModeSelector: React.FC<ViewModeSelectorProps> = ({
   onModeChange,
   isMobile = false 
 }) => {
+  const { t } = useTranslation();
 
   const modeOptions: ModeOption[] = [
     {
       value: "modern",
-      label: "Modern",
+      label: t("view.modern", { defaultValue: "Modern" }),
       mobileSupported: true
     },
     {
       value: "compact",
-      label: "Compact",
+      label: t("view.compact", { defaultValue: "Compact" }),
       mobileSupported: true
     },
     {
       value: "classic",
-      label: "Classic",
+      label: t("view.classic", { defaultValue: "Classic" }),
       mobileSupported: true
     },
     {
       value: "detailed",
-      label: "Detailed",
+      label: t("view.detailed", { defaultValue: "Detailed" }),
       mobileSupported: true
     },
     {
       value: "task",
-      label: "Task",
+      label: t("view.task", { defaultValue: "Task" }),
       mobileSupported: true
     },
     {
       value: "earth",
-      label: "Earth",
+      label: t("view.earth", { defaultValue: "Earth" }),
+      mobileSupported: true
+    },
+    {
+      value: "asset",
+      label: t("view.asset", { defaultValue: "Asset" }),
       mobileSupported: true
     }
   ];
