@@ -46,6 +46,13 @@ export type NodeBasicInfo = {
   business_role?: string;
   asset_ignored?: boolean;
   public_remark?: string;
+  capability_ping?: boolean;
+  capability_terminal?: boolean;
+  capability_remote_exec?: boolean;
+  capability_remote_control?: boolean;
+  capability_gpu?: boolean;
+  capability_auto_update?: boolean;
+  capability_private_ping_targets?: boolean;
   
   group: string;
   /** 流量限制（字节） */
@@ -132,6 +139,14 @@ export const NodeListProvider: React.FC<{ children: React.ReactNode }> = ({
           business_role: n.business_role ?? "",
           asset_ignored: n.asset_ignored ?? false,
           public_remark: n.public_remark ?? "",
+          capability_ping: n.capability_ping ?? false,
+          capability_terminal: n.capability_terminal ?? false,
+          capability_remote_exec: n.capability_remote_exec ?? false,
+          capability_remote_control: n.capability_remote_control ?? false,
+          capability_gpu: n.capability_gpu ?? false,
+          capability_auto_update: n.capability_auto_update ?? false,
+          capability_private_ping_targets:
+            n.capability_private_ping_targets ?? false,
           group: n.group ?? "",
           traffic_limit: n.traffic_limit ?? 0,
           traffic_limit_type: n.traffic_limit_type,

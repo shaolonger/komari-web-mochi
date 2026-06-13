@@ -41,6 +41,7 @@ import {
   TableRow,
 } from "./ui/table";
 import AssetStatsModal from "./AssetStatsModal";
+import AssetDetailsDialog from "./AssetDetailsDialog";
 
 type SortMode = "risk" | "monthly" | "remaining" | "expiry" | "name";
 type FilterMode = "all" | "high" | "expiring" | "manual" | "ignored";
@@ -112,6 +113,7 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
   const [sortMode, setSortMode] = useState<SortMode>("risk");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [statsOpen, setStatsOpen] = useState(false);
+  const [selectedAssetUuid, setSelectedAssetUuid] = useState<string | null>(null);
 
   const onlineSet = useMemo(
     () => new Set(liveData.online || []),
@@ -190,6 +192,30 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         riskReasons.push(
           t("asset.ignoredLabel", { defaultValue: "Ignored from cost rollups" })
         );
+      }
+      if (!node.capability_ping) {
+        riskReasons.push(
+          t("asset.riskNoPing", {
+            defaultValue: "No ping capability is enabled on the agent",
+          })
+        );
+        riskScore += 1;
+      }
+      if (!node.capability_terminal && !node.capability_remote_exec) {
+        riskReasons.push(
+          t("asset.riskNoRemediation", {
+            defaultValue: "No terminal or remote-exec remediation path",
+          })
+        );
+        riskScore += 2;
+      }
+      if (!node.capability_auto_update) {
+        riskReasons.push(
+          t("asset.riskNoAutoUpdate", {
+            defaultValue: "Agent auto-update is disabled",
+          })
+        );
+        riskScore += 1;
       }
 
       const riskLevel =
@@ -333,6 +359,8 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
   const remainingValue = formatCurrencySummary(currencySummary, "remaining");
   const renewal7d = formatCurrencySummary(currencySummary, "renewal7d");
   const renewal30d = formatCurrencySummary(currencySummary, "renewal30d");
+  const selectedRow =
+    sortedRows.find((row) => row.node.uuid === selectedAssetUuid) ?? null;
 
   return (
     <div className="mx-4 mb-6 flex flex-col gap-4">
@@ -496,6 +524,7 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
               <Card
                 key={row.node.uuid}
                 className="border border-[var(--accent-4)] bg-[var(--accent-1)]"
+                onClick={() => setSelectedAssetUuid(row.node.uuid)}
               >
                 <Flex direction="column" gap="3">
                   <Flex justify="between" align="start" gap="3">
@@ -575,6 +604,19 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
                     </Card>
                   </div>
 
+                  <Flex justify="end">
+                    <Button
+                      size="1"
+                      variant="soft"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedAssetUuid(row.node.uuid);
+                      }}
+                    >
+                      {t("asset.viewDetails", { defaultValue: "View details" })}
+                    </Button>
+                  </Flex>
+
                   <Flex direction="column" gap="1">
                     {row.riskReasons.length === 0 ? (
                       <Text size="1" color="gray">
@@ -616,7 +658,11 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
                 const currencyLabel =
                   row.node.currency || row.node.currency_code || "?";
                 return (
-                  <TableRow key={row.node.uuid}>
+                  <TableRow
+                    key={row.node.uuid}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedAssetUuid(row.node.uuid)}
+                  >
                     <TableCell>
                       <Flex direction="column" gap="1">
                         <Text size="2" weight="bold">
@@ -695,6 +741,23 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
                         >
                           {row.riskLevel}
                         </Badge>
+                        <Flex gap="1" wrap="wrap">
+                          {!row.node.capability_ping && (
+                            <Badge color="gray" variant="soft">
+                              {t("asset.capabilityPingShort", {
+                                defaultValue: "No ping",
+                              })}
+                            </Badge>
+                          )}
+                          {!row.node.capability_terminal &&
+                            !row.node.capability_remote_exec && (
+                              <Badge color="gray" variant="soft">
+                                {t("asset.capabilityRemediationShort", {
+                                  defaultValue: "No shell",
+                                })}
+                              </Badge>
+                            )}
+                        </Flex>
                         <Text size="1" color="gray">
                           {row.riskReasons[0] ||
                             t("asset.noRisk", {
@@ -731,6 +794,26 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           annualized: formatCurrencyAmount(item.annualized, item.label),
           remaining: formatCurrencyAmount(item.remaining, item.label),
         }))}
+      />
+      <AssetDetailsDialog
+        open={Boolean(selectedRow)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedAssetUuid(null);
+        }}
+        node={selectedRow?.node ?? null}
+        online={selectedRow?.online ?? false}
+        providerLabel={selectedRow?.providerLabel ?? ""}
+        roleLabel={selectedRow?.roleLabel ?? ""}
+        riskLevel={selectedRow?.riskLevel ?? "low"}
+        riskReasons={selectedRow?.riskReasons ?? []}
+        monthlyCost={selectedRow?.monthlyCost ?? 0}
+        annualizedCost={selectedRow?.annualizedCost ?? 0}
+        remainingValue={selectedRow?.remainingValue ?? 0}
+        daysRemaining={selectedRow?.daysRemaining ?? null}
+        trafficPercentage={selectedRow?.trafficPercentage ?? 0}
+        trafficUsage={selectedRow?.trafficUsage ?? 0}
+        cpuUsage={selectedRow?.cpuUsage ?? 0}
+        memoryUsage={selectedRow?.memoryUsage ?? 0}
       />
     </div>
   );

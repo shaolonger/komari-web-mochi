@@ -28,6 +28,13 @@ export type NodeDetail = {
   provider?: string;
   business_role?: string;
   asset_ignored?: boolean;
+  capability_ping?: boolean;
+  capability_terminal?: boolean;
+  capability_remote_exec?: boolean;
+  capability_remote_control?: boolean;
+  capability_gpu?: boolean;
+  capability_auto_update?: boolean;
+  capability_private_ping_targets?: boolean;
   group: string | undefined;
   billing_cycle: number;
   expired_at: string;
