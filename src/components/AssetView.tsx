@@ -27,6 +27,7 @@ import {
   formatCurrencySummary,
   getAnnualizedCost,
   getAssetExpiryInfo,
+  getCurrencyKey,
   getDaysUntilExpiry,
   getMonthlyCost,
   getRemainingValue,
@@ -189,6 +190,9 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
   const isMobile = useIsMobile();
   const [sortMode, setSortMode] = useState<SortMode>("risk");
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [providerFilter, setProviderFilter] = useState("all");
+  const [currencyFilter, setCurrencyFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
   const [statsOpen, setStatsOpen] = useState(false);
   const [selectedAssetUuid, setSelectedAssetUuid] = useState<string | null>(null);
   const [statsSettings, setStatsSettings] = useLocalStorage<AssetStatsSettings>(
@@ -397,6 +401,17 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
 
   const filteredRows = useMemo(() => {
     return assetRows.filter((row) => {
+      const currencyKey = getCurrencyKey(row.node);
+      if (providerFilter !== "all" && row.providerLabel !== providerFilter) {
+        return false;
+      }
+      if (currencyFilter !== "all" && currencyKey !== currencyFilter) {
+        return false;
+      }
+      if (roleFilter !== "all" && row.roleLabel !== roleFilter) {
+        return false;
+      }
+
       switch (filterMode) {
         case "high":
           return row.riskLevel === "high";
@@ -420,7 +435,7 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           return true;
       }
     });
-  }, [assetRows, filterMode]);
+  }, [assetRows, currencyFilter, filterMode, providerFilter, roleFilter]);
 
   const sortedRows = useMemo(() => {
     const rows = [...filteredRows];
@@ -828,6 +843,28 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
     };
   }, [sortedRows]);
 
+  const providerOptions = useMemo(
+    () =>
+      Array.from(new Set(assetRows.map((row) => row.providerLabel))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [assetRows]
+  );
+  const currencyOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(assetRows.map((row) => getCurrencyKey(row.node)))
+      ).sort((a, b) => a.localeCompare(b)),
+    [assetRows]
+  );
+  const roleOptions = useMemo(
+    () =>
+      Array.from(new Set(assetRows.map((row) => row.roleLabel))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [assetRows]
+  );
+
   const highRiskCount = filteredRows.filter(
     (row) => row.riskLevel === "high"
   ).length;
@@ -1047,6 +1084,63 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
                     defaultValue: "Underused",
                   })}
                 </option>
+              </select>
+            </Flex>
+            <Flex direction="column" gap="1">
+              <Text size="1" color="gray">
+                {t("asset.provider", { defaultValue: "Provider" })}
+              </Text>
+              <select
+                value={providerFilter}
+                onChange={(event) => setProviderFilter(event.target.value)}
+                className="h-9 min-w-[170px] rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
+              >
+                <option value="all">
+                  {t("common.all", { defaultValue: "All" })}
+                </option>
+                {providerOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </Flex>
+            <Flex direction="column" gap="1">
+              <Text size="1" color="gray">
+                {t("asset.currencyCode", { defaultValue: "Currency code" })}
+              </Text>
+              <select
+                value={currencyFilter}
+                onChange={(event) => setCurrencyFilter(event.target.value)}
+                className="h-9 min-w-[170px] rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
+              >
+                <option value="all">
+                  {t("common.all", { defaultValue: "All" })}
+                </option>
+                {currencyOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </Flex>
+            <Flex direction="column" gap="1">
+              <Text size="1" color="gray">
+                {t("asset.role", { defaultValue: "Role" })}
+              </Text>
+              <select
+                value={roleFilter}
+                onChange={(event) => setRoleFilter(event.target.value)}
+                className="h-9 min-w-[170px] rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
+              >
+                <option value="all">
+                  {t("common.all", { defaultValue: "All" })}
+                </option>
+                {roleOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
               </select>
             </Flex>
           </Flex>
