@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -15,6 +15,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import type { NodeBasicInfo } from "@/contexts/NodeListContext";
 import type { LiveData, Record as LiveNodeData } from "@/types/LiveData";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -31,6 +32,7 @@ import {
   getMonthlyCost,
   getRemainingValue,
   groupAssetFinancials,
+  summarizeConvertedField,
 } from "@/utils/assetMetrics";
 import {
   Table,
@@ -45,6 +47,7 @@ import AssetDetailsDialog from "./AssetDetailsDialog";
 
 type SortMode = "risk" | "monthly" | "remaining" | "expiry" | "name";
 type FilterMode = "all" | "high" | "expiring" | "manual" | "ignored";
+type ProviderSortMode = "monthly" | "remaining" | "risk" | "count";
 
 interface AssetViewProps {
   nodes: NodeBasicInfo[];
@@ -68,6 +71,13 @@ interface AssetRow {
   riskScore: number;
   riskLevel: "high" | "medium" | "low";
   riskReasons: string[];
+}
+
+interface AssetStatsSettings {
+  baseCurrency: string;
+  providerSortMode: ProviderSortMode;
+  rateUpdatedAt: string;
+  rates: Record<string, string>;
 }
 
 const KpiCard = ({
@@ -107,6 +117,8 @@ const getProviderLabel = (node: NodeBasicInfo, fallback: string) =>
 const getRoleLabel = (node: NodeBasicInfo, fallback: string) =>
   node.business_role?.trim() || node.public_remark?.trim() || fallback;
 
+const todayDateString = () => new Date().toISOString().slice(0, 10);
+
 const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
@@ -114,6 +126,17 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [statsOpen, setStatsOpen] = useState(false);
   const [selectedAssetUuid, setSelectedAssetUuid] = useState<string | null>(null);
+  const [statsSettings, setStatsSettings] = useLocalStorage<AssetStatsSettings>(
+    "assetStatsSettings",
+    {
+      baseCurrency: "USD",
+      providerSortMode: "monthly",
+      rateUpdatedAt: "",
+      rates: {
+        USD: "1",
+      },
+    }
+  );
 
   const onlineSet = useMemo(
     () => new Set(liveData.online || []),
@@ -305,6 +328,101 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
     [includedRows]
   );
 
+  const baseCurrencyOptions = useMemo(() => {
+    const options = new Map<string, { key: string; label: string }>();
+
+    currencySummary.forEach((item) => {
+      options.set(item.key, { key: item.key, label: item.label });
+    });
+
+    if (!options.has(statsSettings.baseCurrency)) {
+      options.set(statsSettings.baseCurrency, {
+        key: statsSettings.baseCurrency,
+        label: statsSettings.baseCurrency,
+      });
+    }
+
+    return Array.from(options.values()).sort((a, b) =>
+      a.key.localeCompare(b.key)
+    );
+  }, [currencySummary, statsSettings.baseCurrency]);
+
+  useEffect(() => {
+    if (statsSettings.rates[statsSettings.baseCurrency] === "1") return;
+    setStatsSettings((prev) => ({
+      ...prev,
+      rates: {
+        ...prev.rates,
+        [prev.baseCurrency]: "1",
+      },
+    }));
+  }, [setStatsSettings, statsSettings.baseCurrency, statsSettings.rates]);
+
+  const numericRates = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(statsSettings.rates).map(([key, value]) => [
+          key,
+          Number(value),
+        ])
+      ),
+    [statsSettings.rates]
+  );
+
+  const convertedMonthlySummary = useMemo(
+    () =>
+      summarizeConvertedField(
+        currencySummary,
+        "monthly",
+        statsSettings.baseCurrency,
+        numericRates
+      ),
+    [currencySummary, numericRates, statsSettings.baseCurrency]
+  );
+  const convertedAnnualizedSummary = useMemo(
+    () =>
+      summarizeConvertedField(
+        currencySummary,
+        "annualized",
+        statsSettings.baseCurrency,
+        numericRates
+      ),
+    [currencySummary, numericRates, statsSettings.baseCurrency]
+  );
+  const convertedRemainingSummary = useMemo(
+    () =>
+      summarizeConvertedField(
+        currencySummary,
+        "remaining",
+        statsSettings.baseCurrency,
+        numericRates
+      ),
+    [currencySummary, numericRates, statsSettings.baseCurrency]
+  );
+  const convertedRenewal7dSummary = useMemo(
+    () =>
+      summarizeConvertedField(
+        currencySummary,
+        "renewal7d",
+        statsSettings.baseCurrency,
+        numericRates
+      ),
+    [currencySummary, numericRates, statsSettings.baseCurrency]
+  );
+  const convertedRenewal30dSummary = useMemo(
+    () =>
+      summarizeConvertedField(
+        currencySummary,
+        "renewal30d",
+        statsSettings.baseCurrency,
+        numericRates
+      ),
+    [currencySummary, numericRates, statsSettings.baseCurrency]
+  );
+
+  const missingRateCurrencies = convertedMonthlySummary.missingCurrencies;
+  const normalizedTotalsReady = missingRateCurrencies.length === 0;
+
   const providerSummary = useMemo(() => {
     const grouped = new Map<
       string,
@@ -328,31 +446,247 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
 
     const items = Array.from(grouped.values()).map((item) => {
       const financials = groupAssetFinancials(item.rows.map((row) => row.node));
+      const convertedMonthly = summarizeConvertedField(
+        financials,
+        "monthly",
+        statsSettings.baseCurrency,
+        numericRates
+      );
+      const convertedRemaining = summarizeConvertedField(
+        financials,
+        "remaining",
+        statsSettings.baseCurrency,
+        numericRates
+      );
+      const nativeMonthlyValue = item.rows.reduce(
+        (total, row) => total + row.monthlyCost,
+        0
+      );
+      const nativeRemainingValue = item.rows.reduce(
+        (total, row) => total + row.remainingValue,
+        0
+      );
+      const shareLabel =
+        normalizedTotalsReady &&
+        convertedMonthly.missingCurrencies.length === 0 &&
+        convertedMonthlySummary.value > 0
+          ? `${((convertedMonthly.value / convertedMonthlySummary.value) * 100).toFixed(1)}% ${t(
+              "asset.providerShareSpend",
+              {
+                defaultValue: "of normalized monthly spend",
+              }
+            )}`
+          : `${item.rows.length}/${includedRows.length} ${t(
+              "asset.providerShareCount",
+              {
+                defaultValue: "visible assets",
+              }
+            )}`;
+
       return {
         name: item.name,
         count: item.rows.length,
         monthlyCost: formatCurrencySummary(financials, "monthly"),
         remainingValue: formatCurrencySummary(financials, "remaining"),
         riskCount: item.riskCount,
-        sortValue: item.rows.reduce((total, row) => total + row.monthlyCost, 0),
+        convertedMonthlyCost:
+          convertedMonthly.missingCurrencies.length === 0
+            ? formatCurrencyAmount(
+                convertedMonthly.value,
+                statsSettings.baseCurrency
+              )
+            : null,
+        convertedRemainingValue:
+          convertedRemaining.missingCurrencies.length === 0
+            ? formatCurrencyAmount(
+                convertedRemaining.value,
+                statsSettings.baseCurrency
+              )
+            : null,
+        shareLabel,
+        nativeMonthlyValue,
+        nativeRemainingValue,
+        convertedMonthlyValue:
+          convertedMonthly.missingCurrencies.length === 0
+            ? convertedMonthly.value
+            : null,
+        convertedRemainingValueNumeric:
+          convertedRemaining.missingCurrencies.length === 0
+            ? convertedRemaining.value
+            : null,
       };
     });
 
-    items.sort((a, b) => b.sortValue - a.sortValue);
+    items.sort((a, b) => {
+      switch (statsSettings.providerSortMode) {
+        case "remaining":
+          return (
+            (b.convertedRemainingValueNumeric ?? b.nativeRemainingValue) -
+            (a.convertedRemainingValueNumeric ?? a.nativeRemainingValue)
+          );
+        case "risk":
+          return b.riskCount - a.riskCount || b.nativeMonthlyValue - a.nativeMonthlyValue;
+        case "count":
+          return b.count - a.count || b.nativeMonthlyValue - a.nativeMonthlyValue;
+        case "monthly":
+        default:
+          return (
+            (b.convertedMonthlyValue ?? b.nativeMonthlyValue) -
+            (a.convertedMonthlyValue ?? a.nativeMonthlyValue)
+          );
+      }
+    });
 
     return items.map((item) => ({
       name: item.name,
       count: item.count,
       monthlyCost: item.monthlyCost,
       remainingValue: item.remainingValue,
+      convertedMonthlyCost: item.convertedMonthlyCost,
+      convertedRemainingValue: item.convertedRemainingValue,
       riskCount: item.riskCount,
+      shareLabel: item.shareLabel,
     }));
-  }, [includedRows]);
+  }, [
+    convertedMonthlySummary.value,
+    includedRows,
+    normalizedTotalsReady,
+    numericRates,
+    statsSettings.baseCurrency,
+    statsSettings.providerSortMode,
+    t,
+  ]);
+
+  const ignoredProviderSummary = useMemo(() => {
+    const grouped = new Map<string, AssetRow[]>();
+
+    filteredRows
+      .filter((row) => row.node.asset_ignored)
+      .forEach((row) => {
+        const rows = grouped.get(row.providerLabel) ?? [];
+        rows.push(row);
+        grouped.set(row.providerLabel, rows);
+      });
+
+    return Array.from(grouped.entries())
+      .map(([name, rows]) => {
+        const financials = groupAssetFinancials(
+          rows.map((row) => ({
+            ...row.node,
+            asset_ignored: false,
+          }))
+        );
+        return {
+          name,
+          count: rows.length,
+          monthlyCost: formatCurrencySummary(financials, "monthly"),
+          remainingValue: formatCurrencySummary(financials, "remaining"),
+          convertedMonthlyCost: null,
+          convertedRemainingValue: null,
+          riskCount: rows.filter((row) => row.riskLevel === "high").length,
+          shareLabel: "",
+          sortValue: rows.reduce((total, row) => total + row.monthlyCost, 0),
+        };
+      })
+      .sort((a, b) => b.sortValue - a.sortValue)
+      .map((item) => ({
+        name: item.name,
+        count: item.count,
+        monthlyCost: item.monthlyCost,
+        remainingValue: item.remainingValue,
+        convertedMonthlyCost: item.convertedMonthlyCost,
+        convertedRemainingValue: item.convertedRemainingValue,
+        riskCount: item.riskCount,
+        shareLabel: item.shareLabel,
+      }));
+  }, [filteredRows]);
+
+  const lifecycleSummary = useMemo(() => {
+    return filteredRows.reduce(
+      (summary, row) => {
+        const daysRemaining = row.daysRemaining;
+
+        if (row.node.asset_ignored) {
+          summary.ignored += 1;
+        }
+        if (row.node.price > 0 && !row.node.auto_renewal) {
+          summary.manualRenew += 1;
+        }
+
+        if (daysRemaining === null) {
+          return summary;
+        }
+        if (daysRemaining <= 0) {
+          summary.expired += 1;
+        } else if (daysRemaining <= 7) {
+          summary.renewal7d += 1;
+        } else if (daysRemaining <= 30) {
+          summary.renewal30d += 1;
+        } else if (daysRemaining > 365) {
+          summary.longTerm += 1;
+        } else {
+          summary.active += 1;
+        }
+        return summary;
+      },
+      {
+        expired: 0,
+        renewal7d: 0,
+        renewal30d: 0,
+        active: 0,
+        longTerm: 0,
+        manualRenew: 0,
+        ignored: 0,
+      }
+    );
+  }, [filteredRows]);
+
+  const currencyBreakdown = useMemo(
+    () =>
+      currencySummary.map((item) => {
+        const convertedMonthly = summarizeConvertedField(
+          [item],
+          "monthly",
+          statsSettings.baseCurrency,
+          numericRates
+        );
+        return {
+          key: item.key,
+          label: item.label,
+          count: item.count,
+          monthly: formatCurrencyAmount(item.monthly, item.label),
+          annualized: formatCurrencyAmount(item.annualized, item.label),
+          remaining: formatCurrencyAmount(item.remaining, item.label),
+          convertedMonthly:
+            convertedMonthly.missingCurrencies.length === 0
+              ? formatCurrencyAmount(
+                  convertedMonthly.value,
+                  statsSettings.baseCurrency
+                )
+              : null,
+        };
+      }),
+    [currencySummary, numericRates, statsSettings.baseCurrency]
+  );
+
+  const rateInputs = useMemo(
+    () =>
+      baseCurrencyOptions.map((option) => ({
+        key: option.key,
+        label: option.label,
+        value:
+          option.key === statsSettings.baseCurrency
+            ? "1"
+            : statsSettings.rates[option.key] ?? "",
+      })),
+    [baseCurrencyOptions, statsSettings.baseCurrency, statsSettings.rates]
+  );
 
   const highRiskCount = filteredRows.filter(
     (row) => row.riskLevel === "high"
   ).length;
   const billableCount = includedRows.filter((row) => row.node.price > 0).length;
+  const ignoredAssets = filteredRows.filter((row) => row.node.asset_ignored).length;
 
   const monthlySpend = formatCurrencySummary(currencySummary, "monthly");
   const annualizedSpend = formatCurrencySummary(currencySummary, "annualized");
@@ -778,7 +1112,7 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         open={statsOpen}
         onOpenChange={setStatsOpen}
         totalAssets={filteredRows.length}
-        ignoredAssets={filteredRows.filter((row) => row.node.asset_ignored).length}
+        ignoredAssets={ignoredAssets}
         billableAssets={billableCount}
         highRiskAssets={highRiskCount}
         monthlySpend={monthlySpend}
@@ -786,14 +1120,89 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         remainingValue={remainingValue}
         renewal7d={renewal7d}
         renewal30d={renewal30d}
+        convertedMonthlySpend={
+          normalizedTotalsReady
+            ? formatCurrencyAmount(
+                convertedMonthlySummary.value,
+                statsSettings.baseCurrency
+              )
+            : null
+        }
+        convertedAnnualizedSpend={
+          normalizedTotalsReady
+            ? formatCurrencyAmount(
+                convertedAnnualizedSummary.value,
+                statsSettings.baseCurrency
+              )
+            : null
+        }
+        convertedRemainingValue={
+          normalizedTotalsReady
+            ? formatCurrencyAmount(
+                convertedRemainingSummary.value,
+                statsSettings.baseCurrency
+              )
+            : null
+        }
+        convertedRenewal7d={
+          normalizedTotalsReady
+            ? formatCurrencyAmount(
+                convertedRenewal7dSummary.value,
+                statsSettings.baseCurrency
+              )
+            : null
+        }
+        convertedRenewal30d={
+          normalizedTotalsReady
+            ? formatCurrencyAmount(
+                convertedRenewal30dSummary.value,
+                statsSettings.baseCurrency
+              )
+            : null
+        }
+        missingRateCurrencies={missingRateCurrencies}
         providerBreakdown={providerSummary}
-        currencyBreakdown={currencySummary.map((item) => ({
-          label: item.label,
-          count: item.count,
-          monthly: formatCurrencyAmount(item.monthly, item.label),
-          annualized: formatCurrencyAmount(item.annualized, item.label),
-          remaining: formatCurrencyAmount(item.remaining, item.label),
-        }))}
+        ignoredProviderBreakdown={ignoredProviderSummary}
+        currencyBreakdown={currencyBreakdown}
+        lifecycleSummary={lifecycleSummary}
+        baseCurrency={statsSettings.baseCurrency}
+        baseCurrencyOptions={baseCurrencyOptions}
+        onBaseCurrencyChange={(value) =>
+          setStatsSettings((prev) => ({
+            ...prev,
+            baseCurrency: value,
+            rates: {
+              ...prev.rates,
+              [value]: "1",
+            },
+          }))
+        }
+        providerSortMode={statsSettings.providerSortMode}
+        onProviderSortModeChange={(value) =>
+          setStatsSettings((prev) => ({
+            ...prev,
+            providerSortMode: value as ProviderSortMode,
+          }))
+        }
+        rateUpdatedAt={statsSettings.rateUpdatedAt}
+        onRateUpdatedAtChange={(value) =>
+          setStatsSettings((prev) => ({
+            ...prev,
+            rateUpdatedAt: value,
+          }))
+        }
+        rateInputs={rateInputs}
+        onRateChange={(currencyKey, nextValue) =>
+          setStatsSettings((prev) => ({
+            ...prev,
+            rateUpdatedAt: prev.rateUpdatedAt || todayDateString(),
+            rates: {
+              ...prev.rates,
+              [currencyKey]:
+                currencyKey === prev.baseCurrency ? "1" : nextValue,
+            },
+          }))
+        }
       />
       <AssetDetailsDialog
         open={Boolean(selectedRow)}

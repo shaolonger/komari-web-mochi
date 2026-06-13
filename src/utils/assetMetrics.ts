@@ -27,6 +27,11 @@ export interface AssetCurrencySummary {
   renewal30d: number;
 }
 
+export interface AssetConvertedSummary {
+  value: number;
+  missingCurrencies: string[];
+}
+
 const LONG_TERM_DAYS = 36500;
 
 export function isBillableAsset(price?: number | null): boolean {
@@ -149,6 +154,12 @@ export function getCurrencyLabel(asset: Pick<AssetBillingLike, "currency" | "cur
   return asset.currency || asset.currency_code || "?";
 }
 
+export function getCurrencyKey(
+  asset: Pick<AssetBillingLike, "currency" | "currency_code">
+): string {
+  return asset.currency_code || asset.currency || "?";
+}
+
 export function groupAssetFinancials(
   assets: AssetBillingLike[],
   now = new Date()
@@ -157,7 +168,7 @@ export function groupAssetFinancials(
 
   assets.forEach((asset) => {
     if (asset.asset_ignored) return;
-    const key = asset.currency_code || asset.currency || "?";
+    const key = getCurrencyKey(asset);
     const current = grouped.get(key) ?? {
       key,
       label: getCurrencyLabel(asset),
@@ -196,4 +207,52 @@ export function formatCurrencySummary(
   return groups
     .map((group) => formatCurrencyAmount(group[field], group.label))
     .join(" · ");
+}
+
+export function convertCurrencyAmount(
+  value: number,
+  currencyKey: string,
+  baseCurrency: string,
+  rates: Record<string, number>
+): number | null {
+  if (!Number.isFinite(value)) return 0;
+  if (currencyKey === baseCurrency) return value;
+
+  const rate = Number(rates[currencyKey]);
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return null;
+  }
+
+  return value * rate;
+}
+
+export function summarizeConvertedField(
+  groups: AssetCurrencySummary[],
+  field: keyof Pick<
+    AssetCurrencySummary,
+    "monthly" | "annualized" | "remaining" | "renewal7d" | "renewal30d"
+  >,
+  baseCurrency: string,
+  rates: Record<string, number>
+): AssetConvertedSummary {
+  const missingCurrencies = new Set<string>();
+
+  const value = groups.reduce((total, group) => {
+    const converted = convertCurrencyAmount(
+      group[field],
+      group.key,
+      baseCurrency,
+      rates
+    );
+    if (converted === null) {
+      missingCurrencies.add(group.key);
+      return total;
+    }
+    return total + converted;
+  }, 0);
+
+  return {
+    value,
+    missingCurrencies: Array.from(missingCurrencies),
+  };
 }
