@@ -192,7 +192,10 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
       const basicMatch =
         node.name.toLowerCase().includes(term) ||
         node.os.toLowerCase().includes(term) ||
-        node.arch.toLowerCase().includes(term);
+        node.arch.toLowerCase().includes(term) ||
+        (node.public_remark || "").toLowerCase().includes(term) ||
+        (node.provider || "").toLowerCase().includes(term) ||
+        (node.business_role || "").toLowerCase().includes(term);
 
       // 地区搜索（支持emoji和地区名称）
       const regionMatch = isRegionMatch(node.region, term);

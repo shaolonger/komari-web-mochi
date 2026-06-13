@@ -39,7 +39,13 @@ export type NodeBasicInfo = {
   tags: string;
   /** 账单周期（天）*/
   billing_cycle: number;
+  auto_renewal?: boolean;
   currency: string;
+  currency_code?: string;
+  provider?: string;
+  business_role?: string;
+  asset_ignored?: boolean;
+  public_remark?: string;
   
   group: string;
   /** 流量限制（字节） */
@@ -119,7 +125,13 @@ export const NodeListProvider: React.FC<{ children: React.ReactNode }> = ({
           price: n.price ?? 0,
           tags: n.tags ?? "",
           billing_cycle: n.billing_cycle ?? 0,
+          auto_renewal: n.auto_renewal ?? false,
           currency: n.currency ?? "",
+          currency_code: n.currency_code ?? "",
+          provider: n.provider ?? "",
+          business_role: n.business_role ?? "",
+          asset_ignored: n.asset_ignored ?? false,
+          public_remark: n.public_remark ?? "",
           group: n.group ?? "",
           traffic_limit: n.traffic_limit ?? 0,
           traffic_limit_type: n.traffic_limit_type,

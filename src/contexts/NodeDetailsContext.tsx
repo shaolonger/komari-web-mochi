@@ -22,6 +22,12 @@ export type NodeDetail = {
   price: number;
   remark: string | undefined;
   public_remark: string;
+  auto_renewal?: boolean;
+  currency?: string;
+  currency_code?: string;
+  provider?: string;
+  business_role?: string;
+  asset_ignored?: boolean;
   group: string | undefined;
   billing_cycle: number;
   expired_at: string;
