@@ -35,11 +35,6 @@ const LoginDialog = ({ trigger, autoOpen = false, showSettings = true, info, onL
     const {publicInfo} = usePublicInfo();
     // Validate inputs
     const isFormValid = username.trim() !== "" && password.trim() !== "";
-    React.useEffect(() => {
-      if (autoOpen) {
-        setOpen(true);
-      }
-    }, [autoOpen]);
     // Handle login
     const handleLogin = async () => {
       if (!isFormValid) {
@@ -107,11 +102,16 @@ const LoginDialog = ({ trigger, autoOpen = false, showSettings = true, info, onL
         return null;
       }
       return (
-        <a href="/admin">
-          <IconButton>
-            <TablerSettings />
-          </IconButton>
-        </a>
+        <Flex gap="2" align="center">
+          <a href="/manage">
+            <Button variant="soft">Assets</Button>
+          </a>
+          <a href="/admin">
+            <IconButton>
+              <TablerSettings />
+            </IconButton>
+          </a>
+        </Flex>
       );
     }
     return (
