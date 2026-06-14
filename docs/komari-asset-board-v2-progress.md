@@ -31,6 +31,7 @@ Key evidence used in this audit:
   - `src/contexts/NodeListContext.tsx`
   - `src/utils/assetMetrics.ts`
   - `src/utils/assetSignals.ts`
+  - `scripts/asset-release-audit.ts`
   - `src/components/NodeModernCardStatic.tsx`
   - `src/components/NodeCompactCard.tsx`
   - `src/components/DesktopDetailsCard.tsx`
@@ -182,7 +183,7 @@ Recent feature commits already present in the audited branches:
 
 | ID | Status | Priority | Repo | Task | Audit notes |
 | --- | --- | --- | --- | --- | --- |
-| G01 | REVIEW | P0 | all | Validate calculation rules | Server tests continue to cover asset assessment helpers, but a finished cross-cycle parity matrix for FE/BE formulas is still missing. |
+| G01 | DONE | P0 | all | Validate calculation rules | `scripts/asset-release-audit.ts` now validates the front-end asset formulas against the same representative billing matrix used by backend asset tests, and `go test ./api/admin -run 'TestBuildClientAssetSummary|TestBuildClientAssetInventoryFiltersAndSorts|TestBuildClientAssetInventoryIncludesGovernanceAndValueSignals'` confirms the server side. |
 | G02 | REVIEW | P1 | all | Desktop / mobile regression | Theme build, targeted lint, Go tests, and mocked `/manage` browser rendering all pass, but a full multi-page desktop/mobile regression matrix is still not recorded. |
 | G03 | REVIEW | P1 | all | Legacy-data compatibility and fallback | Summary/inventory normalization now includes governance defaults and array fallbacks, but full old-data compatibility coverage across every new view still needs a dedicated sweep. |
 | G04 | TODO | P2 | all | Documentation and release checklist | Release docs, field docs, and rollback checklist are still missing. |
@@ -191,8 +192,8 @@ Recent feature commits already present in the audited branches:
 
 | Status | Count |
 | --- | ---: |
-| DONE | 37 |
-| REVIEW | 3 |
+| DONE | 38 |
+| REVIEW | 2 |
 | TODO | 1 |
 | DOING | 0 |
 | BLOCKED | 0 |
@@ -202,7 +203,6 @@ Recent feature commits already present in the audited branches:
 Recommended next implementation order based on current gaps:
 
 1. Existing release-readiness closure
-   - `G01`
    - `G02`
    - `G03`
    - `G04`
