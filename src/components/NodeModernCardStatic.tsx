@@ -34,6 +34,16 @@ const ModernCardStaticComponent: React.FC<ModernCardStaticProps> = ({
     return getAssetExpiryInfo(basic, t);
   }, [basic, t]);
 
+  const assetMetaLine = useMemo(() => {
+    return [
+      basic.business_role?.trim(),
+      basic.public_remark?.trim(),
+      basic.provider?.trim() || basic.group?.trim(),
+    ]
+      .filter((value, index, array) => Boolean(value) && array.indexOf(value) === index)
+      .join(" · ");
+  }, [basic.business_role, basic.group, basic.provider, basic.public_remark]);
+
 
   // 缓存标签缩放策略 - 只计算价格和到期时间
   const tagScaleStrategyMobile = useMemo(() => {
@@ -144,10 +154,34 @@ const ModernCardStaticComponent: React.FC<ModernCardStaticProps> = ({
                     {expiryInfo.text}
                   </Badge>
                 )}
+                {basic.price > 0 && (
+                  <Badge
+                    color={basic.auto_renewal ? "green" : "amber"}
+                    variant="soft"
+                    size="1"
+                    className={`${tagScaleStrategyMobile.fontSize} ${tagScaleStrategyMobile.padding} whitespace-nowrap`}
+                    style={{ lineHeight: '1.2' }}
+                  >
+                    {basic.auto_renewal
+                      ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+                      : t("asset.manualRenew", { defaultValue: "Manual renew" })}
+                  </Badge>
+                )}
               </div>
             )}
             {!(basic.tags || priceTag || expiryInfo) && (
               <div className="min-h-[20px]" />
+            )}
+            {assetMetaLine ? (
+              <Text
+                size="1"
+                color="gray"
+                className="ml-7 truncate text-[10px]"
+              >
+                {assetMetaLine}
+              </Text>
+            ) : (
+              <div className="min-h-[14px]" />
             )}
             
             {/* 第三行：系统信息 */}
@@ -242,10 +276,34 @@ const ModernCardStaticComponent: React.FC<ModernCardStaticProps> = ({
                     {expiryInfo.text}
                   </Badge>
                 )}
+                {basic.price > 0 && (
+                  <Badge
+                    color={basic.auto_renewal ? "green" : "amber"}
+                    variant="soft"
+                    size="1"
+                    className={`${tagScaleStrategyDesktop.fontSize} ${tagScaleStrategyDesktop.padding} whitespace-nowrap`}
+                    style={{ lineHeight: '1.2' }}
+                  >
+                    {basic.auto_renewal
+                      ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+                      : t("asset.manualRenew", { defaultValue: "Manual renew" })}
+                  </Badge>
+                )}
               </div>
             )}
             {!(basic.tags || priceTag || expiryInfo) && (
               <div className="min-h-[24px]" />
+            )}
+            {assetMetaLine ? (
+              <Text
+                size="1"
+                color="gray"
+                className="ml-10 truncate text-[11px]"
+              >
+                {assetMetaLine}
+              </Text>
+            ) : (
+              <div className="min-h-[16px]" />
             )}
             
             {/* 第三行：系统信息 */}
@@ -282,6 +340,12 @@ export const ModernCardStatic = React.memo(ModernCardStaticComponent, (prev, nex
     prev.basic.price === next.basic.price &&
     prev.basic.billing_cycle === next.basic.billing_cycle &&
     prev.basic.expired_at === next.basic.expired_at &&
+    prev.basic.auto_renewal === next.basic.auto_renewal &&
+    prev.basic.provider === next.basic.provider &&
+    prev.basic.business_role === next.basic.business_role &&
+    prev.basic.public_remark === next.basic.public_remark &&
+    prev.basic.group === next.basic.group &&
+    prev.basic.tags === next.basic.tags &&
     prev.basic.region === next.basic.region &&
     prev.basic.os === next.basic.os &&
     prev.basic.arch === next.basic.arch &&

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -64,6 +64,7 @@ type SortMode =
   | "name";
 type FilterMode = AssetFocusFilterMode;
 type ProviderSortMode = "monthly" | "remaining" | "risk" | "count";
+type AggregationDimension = "provider" | "group" | "currency";
 
 interface AssetViewProps {
   nodes: NodeBasicInfo[];
@@ -72,6 +73,17 @@ interface AssetViewProps {
 }
 
 type AssetRow = AssetSignalRow;
+
+interface AggregationSummaryItem {
+  name: string;
+  count: number;
+  monthlyCost: string;
+  remainingValue: string;
+  convertedMonthlyCost: string | null;
+  convertedRemainingValue: string | null;
+  riskCount: number;
+  shareLabel: string;
+}
 
 interface AssetStatsSettings {
   baseCurrency: string;
@@ -188,6 +200,83 @@ const FilterChip = ({
   </button>
 );
 
+const TimelineBucketCard = ({
+  active,
+  label,
+  count,
+  exposure,
+  hint,
+  preview,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  exposure: string;
+  hint: string;
+  preview: string[];
+  onClick: () => void;
+}) => (
+  <Card
+    className={`border transition ${
+      active
+        ? "border-[var(--accent-8)] bg-[var(--accent-3)]"
+        : "border-[var(--accent-4)] bg-[var(--accent-1)]"
+    }`}
+  >
+    <button type="button" onClick={onClick} className="w-full text-left">
+      <Flex direction="column" gap="3">
+        <Flex align="start" justify="between" gap="3">
+          <div>
+            <Text size="2" color="gray">
+              {label}
+            </Text>
+            <Text size="5" weight="bold">
+              {count}
+            </Text>
+          </div>
+          <Badge color="iris" variant="soft">
+            {exposure}
+          </Badge>
+        </Flex>
+        <Text size="1" color="gray">
+          {hint}
+        </Text>
+        <Flex gap="2" wrap="wrap">
+          {preview.length === 0 ? (
+            <Badge color="green" variant="soft">
+              {label}
+            </Badge>
+          ) : (
+            preview.map((item) => (
+              <Badge key={`${label}-${item}`} color="gray" variant="soft">
+                {item}
+              </Badge>
+            ))
+          )}
+        </Flex>
+      </Flex>
+    </button>
+  </Card>
+);
+
+const formatRenewalExposureLabel = (rows: AssetRow[]) => {
+  if (rows.length === 0) return "0";
+
+  const grouped = new Map<string, number>();
+  rows.forEach((row) => {
+    if (row.node.asset_ignored || row.node.price <= 0) return;
+    const currencyLabel = row.node.currency || row.node.currency_code || "?";
+    grouped.set(currencyLabel, (grouped.get(currencyLabel) ?? 0) + row.node.price);
+  });
+
+  if (grouped.size === 0) return "0";
+
+  return Array.from(grouped.entries())
+    .map(([currency, amount]) => formatCurrencyAmount(amount, currency))
+    .join(" · ");
+};
+
 const todayDateString = () => new Date().toISOString().slice(0, 10);
 
 const AssetView: React.FC<AssetViewProps> = ({
@@ -205,6 +294,8 @@ const AssetView: React.FC<AssetViewProps> = ({
   const [providerFilter, setProviderFilter] = useState("all");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [roleFilter, setRoleFilter] = useState("all");
+  const [aggregationDimension, setAggregationDimension] =
+    useState<AggregationDimension>("provider");
   const [statsOpen, setStatsOpen] = useState(false);
   const [selectedAssetUuid, setSelectedAssetUuid] = useState<string | null>(null);
   const [statsSettings, setStatsSettings] = useLocalStorage<AssetStatsSettings>(
@@ -290,6 +381,12 @@ const AssetView: React.FC<AssetViewProps> = ({
           return row.riskLevel === "low";
         case "expiring":
           return row.daysRemaining !== null && row.daysRemaining <= 30;
+        case "due_today":
+          return row.daysRemaining !== null && row.daysRemaining <= 0;
+        case "due_7d":
+          return row.daysRemaining !== null && row.daysRemaining > 0 && row.daysRemaining <= 7;
+        case "due_30d":
+          return row.daysRemaining !== null && row.daysRemaining > 7 && row.daysRemaining <= 30;
         case "manual":
           return (
             row.node.price > 0 &&
@@ -459,7 +556,10 @@ const AssetView: React.FC<AssetViewProps> = ({
   const missingRateCurrencies = convertedMonthlySummary.missingCurrencies;
   const normalizedTotalsReady = missingRateCurrencies.length === 0;
 
-  const providerSummary = useMemo(() => {
+  const buildAggregationSummary = useCallback((
+    sourceRows: AssetRow[],
+    getName: (row: AssetRow) => string
+  ): AggregationSummaryItem[] => {
     const grouped = new Map<
       string,
       {
@@ -469,15 +569,16 @@ const AssetView: React.FC<AssetViewProps> = ({
       }
     >();
 
-    includedRows.forEach((row) => {
-      const current = grouped.get(row.providerLabel) ?? {
-        name: row.providerLabel,
+    sourceRows.forEach((row) => {
+      const name = getName(row);
+      const current = grouped.get(name) ?? {
+        name,
         rows: [],
         riskCount: 0,
       };
       current.rows.push(row);
       if (row.riskLevel === "high") current.riskCount += 1;
-      grouped.set(row.providerLabel, current);
+      grouped.set(name, current);
     });
 
     const items = Array.from(grouped.values()).map((item) => {
@@ -512,7 +613,7 @@ const AssetView: React.FC<AssetViewProps> = ({
                 defaultValue: "of normalized monthly spend",
               }
             )}`
-          : `${item.rows.length}/${includedRows.length} ${t(
+          : `${item.rows.length}/${sourceRows.length} ${t(
               "asset.providerShareCount",
               {
                 defaultValue: "visible assets",
@@ -585,13 +686,30 @@ const AssetView: React.FC<AssetViewProps> = ({
     }));
   }, [
     convertedMonthlySummary.value,
-    includedRows,
     normalizedTotalsReady,
     numericRates,
     statsSettings.baseCurrency,
     statsSettings.providerSortMode,
     t,
   ]);
+
+  const providerSummary = useMemo(() => {
+    return buildAggregationSummary(includedRows, (row) => row.providerLabel);
+  }, [
+    includedRows,
+    buildAggregationSummary,
+  ]);
+
+  const groupSummary = useMemo(
+    () =>
+      buildAggregationSummary(
+        includedRows,
+        (row) =>
+          row.node.group?.trim() ||
+          t("asset.groupUnknown", { defaultValue: "Ungrouped" })
+      ),
+    [includedRows, buildAggregationSummary, t]
+  );
 
   const ignoredProviderSummary = useMemo(() => {
     const grouped = new Map<string, AssetRow[]>();
@@ -705,6 +823,104 @@ const AssetView: React.FC<AssetViewProps> = ({
     [currencySummary, numericRates, statsSettings.baseCurrency]
   );
 
+  const currencyAggregationSummary = useMemo<AggregationSummaryItem[]>(
+    () =>
+      currencySummary
+        .map((item) => {
+          const convertedMonthly = summarizeConvertedField(
+            [item],
+            "monthly",
+            statsSettings.baseCurrency,
+            numericRates
+          );
+          const convertedRemaining = summarizeConvertedField(
+            [item],
+            "remaining",
+            statsSettings.baseCurrency,
+            numericRates
+          );
+          const riskCount = includedRows.filter(
+            (row) =>
+              getCurrencyKey(row.node) === item.key && row.riskLevel === "high"
+          ).length;
+
+          return {
+            name: item.key,
+            count: item.count,
+            monthlyCost: formatCurrencyAmount(item.monthly, item.label),
+            remainingValue: formatCurrencyAmount(item.remaining, item.label),
+            convertedMonthlyCost:
+              convertedMonthly.missingCurrencies.length === 0
+                ? formatCurrencyAmount(
+                    convertedMonthly.value,
+                    statsSettings.baseCurrency
+                  )
+                : null,
+            convertedRemainingValue:
+              convertedRemaining.missingCurrencies.length === 0
+                ? formatCurrencyAmount(
+                    convertedRemaining.value,
+                    statsSettings.baseCurrency
+                  )
+                : null,
+            riskCount,
+            shareLabel: `${item.count}/${includedRows.length} ${t(
+              "asset.providerShareCount",
+              {
+                defaultValue: "visible assets",
+              }
+            )}`,
+            nativeMonthlyValue: item.monthly,
+            nativeRemainingValue: item.remaining,
+            convertedMonthlyValue:
+              convertedMonthly.missingCurrencies.length === 0
+                ? convertedMonthly.value
+                : null,
+            convertedRemainingValueNumeric:
+              convertedRemaining.missingCurrencies.length === 0
+                ? convertedRemaining.value
+                : null,
+          };
+        })
+        .sort((a, b) => {
+          switch (statsSettings.providerSortMode) {
+            case "remaining":
+              return (
+                (b.convertedRemainingValueNumeric ?? b.nativeRemainingValue) -
+                (a.convertedRemainingValueNumeric ?? a.nativeRemainingValue)
+              );
+            case "count":
+              return b.count - a.count || b.nativeMonthlyValue - a.nativeMonthlyValue;
+            case "risk":
+              return b.riskCount - a.riskCount || b.nativeMonthlyValue - a.nativeMonthlyValue;
+            case "monthly":
+            default:
+              return (
+                (b.convertedMonthlyValue ?? b.nativeMonthlyValue) -
+                (a.convertedMonthlyValue ?? a.nativeMonthlyValue)
+              );
+          }
+        })
+        .map((item) => ({
+          name: item.name,
+          count: item.count,
+          monthlyCost: item.monthlyCost,
+          remainingValue: item.remainingValue,
+          convertedMonthlyCost: item.convertedMonthlyCost,
+          convertedRemainingValue: item.convertedRemainingValue,
+          riskCount: item.riskCount,
+          shareLabel: item.shareLabel,
+        })),
+    [
+      currencySummary,
+      includedRows,
+      numericRates,
+      statsSettings.baseCurrency,
+      statsSettings.providerSortMode,
+      t,
+    ]
+  );
+
   const rateInputs = useMemo(
     () =>
       baseCurrencyOptions.map((option) => ({
@@ -733,6 +949,83 @@ const AssetView: React.FC<AssetViewProps> = ({
       underusedRows,
     };
   }, [sortedRows]);
+
+  const renewalTimelineBuckets = useMemo(() => {
+    const billableRows = sortedRows.filter(
+      (row) => row.node.price > 0 && !row.node.asset_ignored
+    );
+    const todayRows = billableRows.filter(
+      (row) => row.daysRemaining !== null && row.daysRemaining <= 0
+    );
+    const sevenDayRows = billableRows.filter(
+      (row) =>
+        row.daysRemaining !== null &&
+        row.daysRemaining > 0 &&
+        row.daysRemaining <= 7
+    );
+    const thirtyDayRows = billableRows.filter(
+      (row) =>
+        row.daysRemaining !== null &&
+        row.daysRemaining > 7 &&
+        row.daysRemaining <= 30
+    );
+
+    return [
+      {
+        key: "due_today" as FilterMode,
+        label: t("asset.timelineToday", {
+          defaultValue: "Due today / overdue",
+        }),
+        count: todayRows.length,
+        exposure: formatRenewalExposureLabel(todayRows),
+        hint: t("asset.timelineTodayHint", {
+          defaultValue: "Assets already due or reaching zero-day runway.",
+        }),
+        preview: todayRows.slice(0, 3).map((row) => row.node.name),
+      },
+      {
+        key: "due_7d" as FilterMode,
+        label: t("asset.timeline7d", {
+          defaultValue: "Next 7 days",
+        }),
+        count: sevenDayRows.length,
+        exposure: formatRenewalExposureLabel(sevenDayRows),
+        hint: t("asset.timeline7dHint", {
+          defaultValue: "Renew soon items that should be handled this week.",
+        }),
+        preview: sevenDayRows.slice(0, 3).map((row) => row.node.name),
+      },
+      {
+        key: "due_30d" as FilterMode,
+        label: t("asset.timeline30d", {
+          defaultValue: "Next 30 days",
+        }),
+        count: thirtyDayRows.length,
+        exposure: formatRenewalExposureLabel(thirtyDayRows),
+        hint: t("asset.timeline30dHint", {
+          defaultValue: "Upcoming renewal pressure after the immediate 7-day window.",
+        }),
+        preview: thirtyDayRows.slice(0, 3).map((row) => row.node.name),
+      },
+    ];
+  }, [sortedRows, t]);
+
+  const aggregationSummary = useMemo(() => {
+    switch (aggregationDimension) {
+      case "group":
+        return groupSummary;
+      case "currency":
+        return currencyAggregationSummary;
+      case "provider":
+      default:
+        return providerSummary;
+    }
+  }, [
+    aggregationDimension,
+    currencyAggregationSummary,
+    groupSummary,
+    providerSummary,
+  ]);
 
   const providerOptions = useMemo(
     () =>
@@ -936,6 +1229,168 @@ const AssetView: React.FC<AssetViewProps> = ({
           >
             <div>
               <Text size="3" weight="bold">
+                {t("asset.timelineTitle", {
+                  defaultValue: "Renewal timeline",
+                })}
+              </Text>
+              <Text size="2" color="gray">
+                {t("asset.timelineSubtitle", {
+                  defaultValue:
+                    "See the next renewal wave by time bucket, amount exposure, and asset previews.",
+                })}
+              </Text>
+            </div>
+            <Button
+              variant="soft"
+              onClick={() => {
+                setFilterMode("expiring");
+                setSortMode("expiry");
+              }}
+            >
+              {t("asset.timelineOpenAll", {
+                defaultValue: "Open all expiring assets",
+              })}
+            </Button>
+          </Flex>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            {renewalTimelineBuckets.map((bucket) => (
+              <TimelineBucketCard
+                key={bucket.key}
+                active={filterMode === bucket.key}
+                label={bucket.label}
+                count={bucket.count}
+                exposure={bucket.exposure}
+                hint={bucket.hint}
+                preview={bucket.preview}
+                onClick={() => {
+                  setFilterMode(bucket.key);
+                  setSortMode("expiry");
+                }}
+              />
+            ))}
+          </div>
+        </Flex>
+      </Card>
+
+      <Card className="border border-[var(--accent-4)] bg-[var(--accent-1)]">
+        <Flex direction="column" gap="3">
+          <Flex
+            direction={{ initial: "column", lg: "row" }}
+            justify="between"
+            align={{ initial: "start", lg: "center" }}
+            gap="3"
+          >
+            <div>
+              <Text size="3" weight="bold">
+                {t("asset.aggregationTitle", {
+                  defaultValue: "Aggregation workbench",
+                })}
+              </Text>
+              <Text size="2" color="gray">
+                {t("asset.aggregationSubtitle", {
+                  defaultValue:
+                    "Switch between provider, group, and currency to compare structure, concentration, and risk.",
+                })}
+              </Text>
+            </div>
+            <Text size="1" color="gray">
+              {t("asset.aggregationSortHint", {
+                defaultValue: `Ranked by ${statsSettings.providerSortMode}`,
+              })}
+            </Text>
+          </Flex>
+
+          <Flex gap="2" wrap="wrap">
+            <FilterChip
+              active={aggregationDimension === "provider"}
+              label={t("asset.provider", { defaultValue: "Provider" })}
+              count={providerSummary.length}
+              onClick={() => setAggregationDimension("provider")}
+            />
+            <FilterChip
+              active={aggregationDimension === "group"}
+              label={t("common.group", { defaultValue: "Group" })}
+              count={groupSummary.length}
+              onClick={() => setAggregationDimension("group")}
+            />
+            <FilterChip
+              active={aggregationDimension === "currency"}
+              label={t("asset.currencyCode", { defaultValue: "Currency" })}
+              count={currencyAggregationSummary.length}
+              onClick={() => setAggregationDimension("currency")}
+            />
+          </Flex>
+
+          {aggregationSummary.length === 0 ? (
+            <Text size="2" color="gray">
+              {t("asset.aggregationEmpty", {
+                defaultValue: "No aggregation data is available for the current filter scope.",
+              })}
+            </Text>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {aggregationSummary.slice(0, 8).map((item) => (
+                <Card
+                  key={`${aggregationDimension}-${item.name}`}
+                  className="border border-[var(--accent-4)] bg-[var(--accent-2)]"
+                >
+                  <Flex direction="column" gap="2">
+                    <Flex align="start" justify="between" gap="3">
+                      <div>
+                        <Text size="2" weight="bold">
+                          {item.name}
+                        </Text>
+                        <Text size="1" color="gray">
+                          {item.count}{" "}
+                          {t("asset.assetsSuffix", { defaultValue: "assets" })} ·{" "}
+                          {item.shareLabel}
+                        </Text>
+                      </div>
+                      {item.riskCount > 0 ? (
+                        <Badge color="red" variant="soft">
+                          {item.riskCount}{" "}
+                          {t("asset.providerRisk", { defaultValue: "risk" })}
+                        </Badge>
+                      ) : null}
+                    </Flex>
+
+                    <Flex gap="2" wrap="wrap">
+                      <Badge color="iris" variant="soft">
+                        {item.monthlyCost}
+                      </Badge>
+                      {item.convertedMonthlyCost ? (
+                        <Badge color="blue" variant="soft">
+                          {item.convertedMonthlyCost}
+                        </Badge>
+                      ) : null}
+                      <Badge color="green" variant="soft">
+                        {item.remainingValue}
+                      </Badge>
+                      {item.convertedRemainingValue ? (
+                        <Badge color="jade" variant="soft">
+                          {item.convertedRemainingValue}
+                        </Badge>
+                      ) : null}
+                    </Flex>
+                  </Flex>
+                </Card>
+              ))}
+            </div>
+          )}
+        </Flex>
+      </Card>
+
+      <Card className="border border-[var(--accent-4)] bg-[var(--accent-1)]">
+        <Flex direction="column" gap="3">
+          <Flex
+            direction={{ initial: "column", lg: "row" }}
+            justify="between"
+            align={{ initial: "start", lg: "center" }}
+            gap="3"
+          >
+            <div>
+              <Text size="3" weight="bold">
                 {t("asset.riskLayersTitle", {
                   defaultValue: "Risk and decision lanes",
                 })}
@@ -1097,6 +1552,21 @@ const AssetView: React.FC<AssetViewProps> = ({
                 </option>
                 <option value="expiring">
                   {t("asset.filterExpiring", { defaultValue: "Expiring" })}
+                </option>
+                <option value="due_today">
+                  {t("asset.timelineToday", {
+                    defaultValue: "Due today / overdue",
+                  })}
+                </option>
+                <option value="due_7d">
+                  {t("asset.timeline7d", {
+                    defaultValue: "Next 7 days",
+                  })}
+                </option>
+                <option value="due_30d">
+                  {t("asset.timeline30d", {
+                    defaultValue: "Next 30 days",
+                  })}
                 </option>
                 <option value="manual">
                   {t("asset.filterManual", { defaultValue: "Manual renew" })}

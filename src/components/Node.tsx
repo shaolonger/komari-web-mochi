@@ -81,6 +81,13 @@ const Node = ({ basic, live, online }: NodeProps) => {
   const downloadSpeed = formatBytes(liveData.network.down);
   const totalUpload = formatBytes(liveData.network.totalUp);
   const totalDownload = formatBytes(liveData.network.totalDown);
+  const assetMetaLine = [
+    basic.business_role?.trim(),
+    basic.public_remark?.trim(),
+    basic.provider?.trim() || basic.group?.trim(),
+  ]
+    .filter((value, index, array) => Boolean(value) && array.indexOf(value) === index)
+    .join(" · ");
   //const totalTraffic = formatBytes(liveData.network.totalUp + liveData.network.totalDown);
   return (
     <Card
@@ -125,8 +132,22 @@ const Node = ({ basic, live, online }: NodeProps) => {
                         billing_cycle={basic.billing_cycle}
                         expired_at={basic.expired_at}
                         currency={basic.currency}
+                        auto_renewal={basic.auto_renewal}
                         tags={basic.tags}
                       />
+                    )}
+                    {assetMetaLine && (
+                      <Text
+                        color="gray"
+                        style={{
+                          marginTop: isMobile ? "-1px" : "2px",
+                          fontSize: isMobile ? "0.72rem" : "0.78rem",
+                          maxWidth: "260px",
+                        }}
+                        className="truncate"
+                      >
+                        {assetMetaLine}
+                      </Text>
                     )}
                   </Flex>
                 </Link>

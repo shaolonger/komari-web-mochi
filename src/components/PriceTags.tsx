@@ -11,6 +11,7 @@ const PriceTags = ({
   billing_cycle = 30,
   currency = "￥",
   expired_at = Date.now() + 30 * 24 * 60 * 60 * 1000,
+  auto_renewal,
   tags = "",
   ...props
 }: {
@@ -18,6 +19,7 @@ const PriceTags = ({
   price?: number;
   billing_cycle?: number;
   currency?: string;
+  auto_renewal?: boolean;
   tags?: string;
 } & React.ComponentProps<typeof Flex>) => {
   const [t] = useTranslation();
@@ -51,6 +53,18 @@ const PriceTags = ({
           <label className="text-xs">{expiryInfo.text}</label>
         </Badge>
       )}
+      <Badge
+        color={auto_renewal ? "green" : "amber"}
+        size="1"
+        variant="soft"
+        className="text-sm"
+      >
+        <label className="text-xs">
+          {auto_renewal
+            ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+            : t("asset.manualRenew", { defaultValue: "Manual renew" })}
+        </label>
+      </Badge>
       <CustomTags tags={tags} />
     </Flex>
   );

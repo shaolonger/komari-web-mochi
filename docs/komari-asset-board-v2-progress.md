@@ -33,6 +33,9 @@ Key evidence used in this audit:
   - `src/utils/assetSignals.ts`
   - `src/components/NodeModernCardStatic.tsx`
   - `src/components/NodeCompactCard.tsx`
+  - `src/components/DesktopDetailsCard.tsx`
+  - `src/components/MobileDetailsCard.tsx`
+  - `src/components/PriceTags.tsx`
   - `src/pages/Index.tsx`
 - Server-side asset model and APIs:
   - `database/models/models.go`
@@ -80,7 +83,7 @@ Recent feature commits already present in the audited branches:
 | High-risk asset identification | DONE | `risk_score`, `high_risk`, issue queues, and filters already exist. |
 | Idle / underused asset identification | DONE | `src/utils/assetSignals.ts` now excludes protected assets from reclaim suggestions, `AssetView.tsx` exposes idle-spend filters/queues, and details show estimated monthly waste. |
 | Asset decision labels | DONE | `src/utils/assetSignals.ts` and `AssetView.tsx` now emit and display retain / observe / renew / reclaim labels with filter support. |
-| Node card asset semantics enhancement | REVIEW | Price and expiry tags exist; role, remark, and auto-renew signaling are not fully surfaced on cards. |
+| Node card asset semantics enhancement | DONE | `NodeModernCardStatic.tsx`, `NodeCompactCard.tsx`, `Node.tsx`, and `PriceTags.tsx` now surface role/remark context and explicit auto-renew or manual-renew status on cards. |
 | Homepage alert strip | DONE | `HomeAssetOverview.tsx` adds homepage alert cards for offline, renew-soon, traffic, network quality, and stale telemetry, with routing into asset filters. |
 | Latency / loss summary frontload | DONE | `HomeAssetOverview.tsx` adds a 1h network watch block with latency/loss/jitter summary support and a graceful empty state. |
 | `public_remark` / `auto_renewal` field usage | DONE | Both are mapped in `NodeListContext.tsx`; `public_remark` is used by asset details and search. |
@@ -113,14 +116,14 @@ Recent feature commits already present in the audited branches:
 | A03 | DONE | P0 | `komari-web-mochi` | `AssetStatsModal` statistics dialog | `AssetStatsModal.tsx` exists and is triggered from `AssetView.tsx`. |
 | A04 | DONE | P0 | `komari-web-mochi` | Asset inventory main view | `AssetView.tsx` supports search, sort, filter, mobile cards, table view, and empty-state handling. |
 | A05 | DONE | P1 | `komari-web-mochi` | Asset detail drawer / side panel | `AssetDetailsDialog.tsx` now uses the drawer component, shows provider/role/billing/capabilities/risk, and includes 1h operational summary plus 7d action summary without losing list filter state. |
-| A06 | TODO | P1 | `komari-web-mochi` | Renewal timeline | No dedicated timeline view or clickable time-bucket flow is present yet. |
+| A06 | DONE | P1 | `komari-web-mochi` | Renewal timeline | `AssetView.tsx` now shows today / 7-day / 30-day renewal buckets with exposure labels, previews, and clickable filtering into the inventory list. |
 | A07 | DONE | P1 | `komari-web-mochi` | Risk layered filtering | `AssetView.tsx` now supports high / medium / low risk bands, one-click chips, and consistent risk explanations sourced from `src/utils/assetSignals.ts`. |
 | A08 | DONE | P1 | `komari-web-mochi` | Homepage top alert summary strip | `HomeAssetOverview.tsx` now surfaces offline, renew-soon, traffic, network-quality, and stale-telemetry alerts, and verified routing into asset filters. |
-| A09 | REVIEW | P1 | `komari-web-mochi` | Node card asset semantics enhancement | `NodeModernCardStatic.tsx` and `NodeCompactCard.tsx` show asset price and expiry tags, but `public_remark`, business role, and explicit auto-renew state are not fully expressed. |
+| A09 | DONE | P1 | `komari-web-mochi` | Node card asset semantics enhancement | `NodeModernCardStatic.tsx`, `NodeCompactCard.tsx`, `Node.tsx`, and `PriceTags.tsx` now expose role/remark context plus auto-renew or manual-renew status without overloading the cards. |
 | A10 | DONE | P1 | `komari-web-mochi` | Frontload latency / packet loss summary | Homepage now includes a `1h network watch` block that surfaces average latency, packet loss, and jitter support with ping-summary fallback and empty-state handling. |
 | A11 | DONE | P1 | `komari-web-mochi` | Asset decision label system | `AssetView.tsx` and `AssetDetailsDialog.tsx` now show retain / observe / renew / reclaim labels, reasons, summaries, and filter lanes. |
 | A12 | DONE | P1 | `komari-web-mochi` | Idle / underused asset view | `src/utils/assetSignals.ts` adds protected-node exclusion and waste estimation; `AssetView.tsx` surfaces reclaim candidates separately from protected low-utilization assets. |
-| A13 | REVIEW | P2 | `komari-web-mochi` | Provider / group / currency aggregation analysis | Provider and currency aggregation are present; group-specific aggregation switching is still incomplete. |
+| A13 | DONE | P2 | `komari-web-mochi` | Provider / group / currency aggregation analysis | `AssetView.tsx` now adds an aggregation workbench that switches between provider, group, and currency and respects amount / count / risk ranking. |
 | A14 | DONE | P2 | `komari-web-mochi` | Asset value score and risk score display | `AssetView.tsx` now shows sortable value/risk scores and `AssetDetailsDialog.tsx` explains their breakdowns for every asset. |
 
 ### B. Front-end data mapping and calculation rules
@@ -169,7 +172,7 @@ Recent feature commits already present in the audited branches:
 | --- | --- | --- | --- | --- | --- |
 | F01 | DONE | P1 | `komari-web-mochi` | Homepage asset summary entry | `HomeAssetOverview.tsx` adds first-screen asset KPI cards plus direct `Open asset view` and `Open asset desk` entry points. |
 | F02 | DONE | P1 | `komari-web-mochi` | Natural-language homepage risk summary | Homepage hero now renders sentence-style portfolio summaries such as renewals, manual-renew exposure, offline nodes, and network pressure. |
-| F03 | TODO | P2 | `komari-web-mochi` | Enrich existing detail page with asset info | The classic instance detail views still do not expose the same asset metadata depth as `AssetDetailsDialog.tsx`. |
+| F03 | DONE | P2 | `komari-web-mochi` | Enrich existing detail page with asset info | `DesktopDetailsCard.tsx` and `MobileDetailsCard.tsx` now include an `Asset information` section with provider, role, remark, billing, remaining value, expiry, and renewal status. |
 
 ### G. Regression, validation, and release readiness
 
@@ -184,9 +187,9 @@ Recent feature commits already present in the audited branches:
 
 | Status | Count |
 | --- | ---: |
-| DONE | 24 |
-| REVIEW | 12 |
-| TODO | 5 |
+| DONE | 28 |
+| REVIEW | 8 |
+| TODO | 3 |
 | DOING | 0 |
 | BLOCKED | 0 |
 
@@ -194,19 +197,14 @@ Recent feature commits already present in the audited branches:
 
 Recommended next implementation order based on current gaps:
 
-1. Asset detail and risk closure
-   - `A06`
-   - `A09`
-   - `A13`
-2. Server and governance closure
+1. Server and governance closure
    - `C04`
    - `D01`
    - `D02`
    - `D03`
    - `D04`
    - `D06`
-3. Existing detail and release-readiness closure
-   - `F03`
+2. Existing release-readiness closure
    - `G01`
    - `G02`
    - `G03`

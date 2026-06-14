@@ -32,6 +32,15 @@ const NodeCompactCard: React.FC<NodeCompactCardProps> = ({ basic, live, online }
   const expiryInfo = useMemo(() => {
     return getAssetExpiryInfo(basic, t);
   }, [basic, t]);
+  const assetMetaLine = useMemo(() => {
+    return [
+      basic.business_role?.trim(),
+      basic.public_remark?.trim(),
+      basic.provider?.trim() || basic.group?.trim(),
+    ]
+      .filter((value, index, array) => Boolean(value) && array.indexOf(value) === index)
+      .join(" · ");
+  }, [basic.business_role, basic.group, basic.provider, basic.public_remark]);
 
   const cpuUsage = live?.cpu?.usage ?? 0;
   const memUsage = basic.mem_total > 0 && live?.ram?.used ? (live.ram.used / basic.mem_total) * 100 : 0;
@@ -100,10 +109,28 @@ const NodeCompactCard: React.FC<NodeCompactCardProps> = ({ basic, live, online }
                         {expiryInfo.text}
                       </Badge>
                     )}
+                    {basic.price > 0 && (
+                      <Badge
+                        color={basic.auto_renewal ? "green" : "amber"}
+                        variant="soft"
+                        size="1"
+                        className="text-[10px] px-1 py-0 whitespace-nowrap"
+                        style={{ lineHeight: '1.2' }}
+                      >
+                        {basic.auto_renewal
+                          ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+                          : t("asset.manualRenew", { defaultValue: "Manual renew" })}
+                      </Badge>
+                    )}
                   </div>
                 ) : (
                   /* 无标签时不添加占位元素，通过CSS类调整对齐 */
                   null
+                )}
+                {assetMetaLine && (
+                  <Text size="1" color="gray" className="truncate text-[11px]">
+                    {assetMetaLine}
+                  </Text>
                 )}
               </Flex>
             </Flex>

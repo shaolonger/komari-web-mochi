@@ -4,6 +4,9 @@ export type AssetFocusFilterMode =
   | "medium"
   | "low"
   | "expiring"
+  | "due_today"
+  | "due_7d"
+  | "due_30d"
   | "manual"
   | "ignored"
   | "metadata"
@@ -32,6 +35,9 @@ export function isAssetFocusFilterMode(
     "medium",
     "low",
     "expiring",
+    "due_today",
+    "due_7d",
+    "due_30d",
     "manual",
     "ignored",
     "metadata",
