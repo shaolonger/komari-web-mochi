@@ -1,12 +1,17 @@
 import { Badge, Flex } from "@radix-ui/themes";
 import { useTranslation } from "react-i18next";
 import CustomTags from "./CustomTags";
+import {
+  formatAssetPriceTag,
+  getAssetExpiryInfo,
+} from "@/utils/assetMetrics";
 
 const PriceTags = ({
   price = 0,
   billing_cycle = 30,
   currency = "￥",
   expired_at = Date.now() + 30 * 24 * 60 * 60 * 1000,
+  auto_renewal,
   tags = "",
   ...props
 }: {
@@ -14,8 +19,10 @@ const PriceTags = ({
   price?: number;
   billing_cycle?: number;
   currency?: string;
+  auto_renewal?: boolean;
   tags?: string;
 } & React.ComponentProps<typeof Flex>) => {
+  const [t] = useTranslation();
   if (price == 0) {
     return (
       <Flex gap="1" {...props} wrap="wrap">
@@ -23,71 +30,39 @@ const PriceTags = ({
       </Flex>
     );
   }
-  const [t] = useTranslation();
+  const priceTag = formatAssetPriceTag(
+    { price, billing_cycle, currency },
+    t
+  );
+  const expiryInfo = getAssetExpiryInfo({ expired_at, price }, t);
 
   return (
     <Flex gap="1" {...props} wrap="wrap">
-      <Badge color="iris" size="1" variant="soft" className="text-sm">
-        <label className="text-xs">
-          {price == -1 ? t("common.free") : `${currency}${price}`}/
-          {(() => {
-            if (billing_cycle >= 27 && billing_cycle <= 32) {
-              return t("common.monthly");
-            } else if (billing_cycle >= 87 && billing_cycle <= 95) {
-              return t("common.quarterly");
-            } else if (billing_cycle >= 175 && billing_cycle <= 185) {
-              return t("common.semi_annual");
-            } else if (billing_cycle >= 360 && billing_cycle <= 370) {
-              return t("common.annual");
-            } else if (billing_cycle >= 720 && billing_cycle <= 750) {
-              return t("common.biennial");
-            } else if (billing_cycle >= 1080 && billing_cycle <= 1150) {
-              return t("common.triennial");
-            } else if (billing_cycle == -1) {
-              return t("common.once");
-            } else {
-              return `${billing_cycle} ${t("nodeCard.time_day")}`;
-            }
-          })()}
-        </label>
-      </Badge>
+      {priceTag && (
+        <Badge color="iris" size="1" variant="soft" className="text-sm">
+          <label className="text-xs">{priceTag}</label>
+        </Badge>
+      )}
+      {expiryInfo && (
+        <Badge
+          color={expiryInfo.color}
+          size="1"
+          variant="soft"
+          className="text-sm"
+        >
+          <label className="text-xs">{expiryInfo.text}</label>
+        </Badge>
+      )}
       <Badge
-        color={(() => {
-          const expiredDate = new Date(expired_at);
-          const now = new Date();
-          const diffTime = expiredDate.getTime() - now.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          if (diffDays <= 0 || diffDays <= 7) {
-            return "red";
-          } else if (diffDays <= 15) {
-            return "orange";
-          } else {
-            return "green";
-          }
-        })()}
+        color={auto_renewal ? "green" : "amber"}
         size="1"
         variant="soft"
         className="text-sm"
       >
         <label className="text-xs">
-          {(() => {
-            const expiredDate = new Date(expired_at);
-            const now = new Date();
-            const diffTime = expiredDate.getTime() - now.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-            if (diffDays <= 0) {
-              return t("common.expired");
-            } else if (diffDays > 36500) {
-              // 100 years approximately
-              return t("common.long_term");
-            } else {
-              return t("common.expired_in", {
-                days: diffDays,
-              });
-            }
-          })()}
+          {auto_renewal
+            ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+            : t("asset.manualRenew", { defaultValue: "Manual renew" })}
         </label>
       </Badge>
       <CustomTags tags={tags} />

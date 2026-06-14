@@ -8,6 +8,14 @@ import type { Record } from "@/types/LiveData";
 import { MetricBar } from "./MetricBar";
 import { TrafficLimitChart } from "./TrafficLimitChart";
 import { usePingSummary } from "@/hooks/use-ping-summary";
+import {
+  formatCurrencyAmount,
+  getAnnualizedCost,
+  getAssetExpiryInfo,
+  getBillingCycleLabel,
+  getMonthlyCost,
+  getRemainingValue,
+} from "@/utils/assetMetrics";
 
 interface DesktopDetailsCardProps {
   node: NodeBasicInfo;
@@ -37,6 +45,14 @@ export const DesktopDetailsCard: React.FC<DesktopDetailsCardProps> = ({
     : { percentage: 0, usage: 0 };
   const hasTrafficLimit = Number(node.traffic_limit) > 0 && node.traffic_limit_type;
   const pingSummary = usePingSummary(node.uuid);
+  const currencyLabel = node.currency || node.currency_code || "?";
+  const assetExpiryInfo = getAssetExpiryInfo(node, t);
+  const monthlyCost = getMonthlyCost(node.price, node.billing_cycle);
+  const annualizedCost = getAnnualizedCost(node.price, node.billing_cycle);
+  const remainingValue = getRemainingValue(node);
+  const assetMetaLine = [node.business_role?.trim(), node.public_remark?.trim()]
+    .filter((value, index, array) => Boolean(value) && array.indexOf(value) === index)
+    .join(" · ");
 
   // 获取流量限制类型的显示文本
   const getTrafficTypeDisplay = (type?: string) => {
@@ -187,6 +203,62 @@ export const DesktopDetailsCard: React.FC<DesktopDetailsCardProps> = ({
           <DetailRow
             label={t("nodeCard.connections")}
             value={liveData ? `TCP: ${liveData.connections.tcp}, UDP: ${liveData.connections.udp}` : "-"}
+          />
+        </div>
+
+        <div className="node-detail-card node-detail-animate" style={{ ["--delay" as any]: "260ms" }}>
+          <div className="node-detail-section-title">
+            {t("asset.instanceInfoTitle", { defaultValue: "Asset information" })}
+          </div>
+          <DetailRow
+            label={t("asset.provider", { defaultValue: "Provider" })}
+            value={node.provider || node.group || "-"}
+          />
+          <DetailRow
+            label={t("asset.role", { defaultValue: "Role" })}
+            value={node.business_role || "-"}
+          />
+          <DetailRow
+            label={t("asset.publicRemark", { defaultValue: "Public remark" })}
+            value={node.public_remark || "-"}
+          />
+          <DetailRow
+            label={t("asset.assetContext", { defaultValue: "Context" })}
+            value={assetMetaLine || "-"}
+          />
+          <DetailRow
+            label={t("asset.billingCycle", { defaultValue: "Billing cycle" })}
+            value={getBillingCycleLabel(node.billing_cycle, t)}
+          />
+          <DetailRow
+            label={t("asset.monthly", { defaultValue: "Monthly" })}
+            value={formatCurrencyAmount(monthlyCost, currencyLabel)}
+          />
+          <DetailRow
+            label={t("asset.annualized", { defaultValue: "Annualized" })}
+            value={formatCurrencyAmount(annualizedCost, currencyLabel)}
+          />
+          <DetailRow
+            label={t("asset.remainingValue", { defaultValue: "Remaining value" })}
+            value={formatCurrencyAmount(remainingValue, currencyLabel)}
+          />
+          <DetailRow
+            label={t("asset.expiry", { defaultValue: "Expiry" })}
+            value={assetExpiryInfo?.text || t("asset.noExpiry", { defaultValue: "No expiry" })}
+          />
+          <DetailRow
+            label={t("asset.autoRenewal", { defaultValue: "Auto renewal" })}
+            value={
+              node.price > 0
+                ? node.auto_renewal
+                  ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+                  : t("asset.manualRenew", { defaultValue: "Manual renew" })
+                : t("common.free", { defaultValue: "Free" })
+            }
+          />
+          <DetailRow
+            label={t("asset.ignoredLabel", { defaultValue: "Ignored from cost rollups" })}
+            value={node.asset_ignored ? t("common.yes", { defaultValue: "Yes" }) : t("common.no", { defaultValue: "No" })}
           />
         </div>
 

@@ -5,6 +5,7 @@ import { Server, AlertTriangle } from "lucide-react";
 import Flag from "./Flag";
 import CustomTags from "./CustomTags";
 import type { NodeBasicInfo } from "@/contexts/NodeListContext";
+import { formatAssetPriceTag, getAssetExpiryInfo } from "@/utils/assetMetrics";
 import { getOSImage, getOSName } from "@/utils";
 import "./NodeModernCard.css";
 
@@ -25,44 +26,23 @@ const ModernCardStaticComponent: React.FC<ModernCardStaticProps> = ({
 
   // 缓存价格标签计算
   const priceTag = useMemo(() => {
-    if (basic.price === 0) return '';
-    if (basic.price === -1) return t("common.free");
-    
-    const cycle = basic.billing_cycle;
-    let cycleText = '';
-    if (cycle >= 27 && cycle <= 32) cycleText = t("common.monthly");
-    else if (cycle >= 87 && cycle <= 95) cycleText = t("common.quarterly");
-    else if (cycle >= 175 && cycle <= 185) cycleText = t("common.semi_annual");
-    else if (cycle >= 360 && cycle <= 370) cycleText = t("common.annual");
-    else if (cycle >= 720 && cycle <= 750) cycleText = t("common.biennial");
-    else if (cycle >= 1080 && cycle <= 1150) cycleText = t("common.triennial");
-    else if (cycle === -1) cycleText = t("common.once");
-    else cycleText = `${cycle} ${t("nodeCard.time_day")}`;
-    
-    return `${basic.currency || '￥'}${basic.price}/${cycleText}`;
-  }, [basic.price, basic.billing_cycle, basic.currency, t]);
+    return formatAssetPriceTag(basic, t);
+  }, [basic, t]);
 
   // 缓存到期时间计算
   const expiryInfo = useMemo(() => {
-    if (!basic.expired_at || basic.price === 0) return null;
-    
-    const expiredDate = new Date(basic.expired_at);
-    const now = new Date();
-    const diffTime = expiredDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    let color: "red" | "orange" | "green";
-    if (diffDays <= 0 || diffDays <= 7) color = "red";
-    else if (diffDays <= 15) color = "orange";
-    else color = "green";
-    
-    let text: string;
-    if (diffDays <= 0) text = t("common.expired");
-    else if (diffDays > 36500) text = t("common.long_term");
-    else text = t("common.expired_in", { days: diffDays });
-    
-    return { color, text };
-  }, [basic.expired_at, basic.price, t]);
+    return getAssetExpiryInfo(basic, t);
+  }, [basic, t]);
+
+  const assetMetaLine = useMemo(() => {
+    return [
+      basic.business_role?.trim(),
+      basic.public_remark?.trim(),
+      basic.provider?.trim() || basic.group?.trim(),
+    ]
+      .filter((value, index, array) => Boolean(value) && array.indexOf(value) === index)
+      .join(" · ");
+  }, [basic.business_role, basic.group, basic.provider, basic.public_remark]);
 
 
   // 缓存标签缩放策略 - 只计算价格和到期时间
@@ -174,10 +154,34 @@ const ModernCardStaticComponent: React.FC<ModernCardStaticProps> = ({
                     {expiryInfo.text}
                   </Badge>
                 )}
+                {basic.price > 0 && (
+                  <Badge
+                    color={basic.auto_renewal ? "green" : "amber"}
+                    variant="soft"
+                    size="1"
+                    className={`${tagScaleStrategyMobile.fontSize} ${tagScaleStrategyMobile.padding} whitespace-nowrap`}
+                    style={{ lineHeight: '1.2' }}
+                  >
+                    {basic.auto_renewal
+                      ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+                      : t("asset.manualRenew", { defaultValue: "Manual renew" })}
+                  </Badge>
+                )}
               </div>
             )}
             {!(basic.tags || priceTag || expiryInfo) && (
               <div className="min-h-[20px]" />
+            )}
+            {assetMetaLine ? (
+              <Text
+                size="1"
+                color="gray"
+                className="ml-7 truncate text-[10px]"
+              >
+                {assetMetaLine}
+              </Text>
+            ) : (
+              <div className="min-h-[14px]" />
             )}
             
             {/* 第三行：系统信息 */}
@@ -272,10 +276,34 @@ const ModernCardStaticComponent: React.FC<ModernCardStaticProps> = ({
                     {expiryInfo.text}
                   </Badge>
                 )}
+                {basic.price > 0 && (
+                  <Badge
+                    color={basic.auto_renewal ? "green" : "amber"}
+                    variant="soft"
+                    size="1"
+                    className={`${tagScaleStrategyDesktop.fontSize} ${tagScaleStrategyDesktop.padding} whitespace-nowrap`}
+                    style={{ lineHeight: '1.2' }}
+                  >
+                    {basic.auto_renewal
+                      ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+                      : t("asset.manualRenew", { defaultValue: "Manual renew" })}
+                  </Badge>
+                )}
               </div>
             )}
             {!(basic.tags || priceTag || expiryInfo) && (
               <div className="min-h-[24px]" />
+            )}
+            {assetMetaLine ? (
+              <Text
+                size="1"
+                color="gray"
+                className="ml-10 truncate text-[11px]"
+              >
+                {assetMetaLine}
+              </Text>
+            ) : (
+              <div className="min-h-[16px]" />
             )}
             
             {/* 第三行：系统信息 */}
@@ -312,6 +340,12 @@ export const ModernCardStatic = React.memo(ModernCardStaticComponent, (prev, nex
     prev.basic.price === next.basic.price &&
     prev.basic.billing_cycle === next.basic.billing_cycle &&
     prev.basic.expired_at === next.basic.expired_at &&
+    prev.basic.auto_renewal === next.basic.auto_renewal &&
+    prev.basic.provider === next.basic.provider &&
+    prev.basic.business_role === next.basic.business_role &&
+    prev.basic.public_remark === next.basic.public_remark &&
+    prev.basic.group === next.basic.group &&
+    prev.basic.tags === next.basic.tags &&
     prev.basic.region === next.basic.region &&
     prev.basic.os === next.basic.os &&
     prev.basic.arch === next.basic.arch &&

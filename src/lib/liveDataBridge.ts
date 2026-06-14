@@ -216,6 +216,7 @@ export class LiveDataBridge {
         process: rec.process ?? 0,
         message: "",
         updated_at: rec.time ?? new Date().toISOString(),
+        ping: rec.ping ?? {},
       };
     }
 

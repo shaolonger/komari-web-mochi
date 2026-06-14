@@ -24,8 +24,18 @@ import NodeEarthView from "./NodeEarthView";
 import ViewModeSelector from "./ViewModeSelector";
 import ModernGridVirtual from "./ModernGridVirtual";
 import { usePublicInfo } from "@/contexts/PublicInfoContext";
+import AssetView from "./AssetView";
+import { ASSET_VIEW_MODE_EVENT } from "@/lib/assetNavigation";
+import type { PingSummaryMap } from "@/hooks/usePingSummaryMap";
 
-export type ViewMode = "modern" | "compact" | "classic" | "detailed" | "task" | "earth";
+export type ViewMode =
+  | "modern"
+  | "compact"
+  | "classic"
+  | "detailed"
+  | "task"
+  | "earth"
+  | "asset";
 
 const VIEW_MODES: ViewMode[] = [
   "modern",
@@ -34,6 +44,7 @@ const VIEW_MODES: ViewMode[] = [
   "detailed",
   "task",
   "earth",
+  "asset",
 ];
 
 const clampNumber = (value: number, min: number, max: number) => {
@@ -62,10 +73,16 @@ const parseBooleanSetting = (value: unknown, fallback: boolean) => {
 interface NodeDisplayProps {
   nodes: NodeBasicInfo[];
   liveData: LiveData;
+  pingSummaryMap?: PingSummaryMap;
   forceShowTrafficText?: boolean;
 }
 
-const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTrafficText }) => {
+const NodeDisplay: React.FC<NodeDisplayProps> = ({
+  nodes,
+  liveData,
+  pingSummaryMap,
+  forceShowTrafficText,
+}) => {
   const [t] = useTranslation();
   const isMobile = useIsMobile();
   const { publicInfo } = usePublicInfo();
@@ -85,7 +102,7 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
   // 获取配置的默认视图模式，并转换为小写
   const configDefaultMode = publicInfo?.theme_settings?.defaultViewMode?.toLowerCase() as ViewMode | undefined;
   const defaultMode: ViewMode = configDefaultMode && 
-    ["modern", "compact", "classic", "detailed", "task", "earth"].includes(configDefaultMode) 
+    ["modern", "compact", "classic", "detailed", "task", "earth", "asset"].includes(configDefaultMode)
     ? configDefaultMode : "modern";
   
   const [viewMode, setViewMode] = useLocalStorage<ViewMode>(
@@ -101,6 +118,27 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
       setViewMode("modern");
     }
   }, [viewMode, setViewMode]);
+
+  useEffect(() => {
+    const handleViewModeRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: ViewMode }>).detail;
+      if (detail?.mode && VIEW_MODES.includes(detail.mode)) {
+        setViewMode(detail.mode);
+      }
+    };
+
+    window.addEventListener(
+      ASSET_VIEW_MODE_EVENT,
+      handleViewModeRequest as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        ASSET_VIEW_MODE_EVENT,
+        handleViewModeRequest as EventListener
+      );
+    };
+  }, [setViewMode]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedGroup, setSelectedGroup] = useLocalStorage<string>(
@@ -192,7 +230,10 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
       const basicMatch =
         node.name.toLowerCase().includes(term) ||
         node.os.toLowerCase().includes(term) ||
-        node.arch.toLowerCase().includes(term);
+        node.arch.toLowerCase().includes(term) ||
+        (node.public_remark || "").toLowerCase().includes(term) ||
+        (node.provider || "").toLowerCase().includes(term) ||
+        (node.business_role || "").toLowerCase().includes(term);
 
       // 地区搜索（支持emoji和地区名称）
       const regionMatch = isRegionMatch(node.region, term);
@@ -210,12 +251,6 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
       return basicMatch || regionMatch || priceMatch || statusMatch;
     });
   }, [nodes, searchTerm, liveData, selectedGroup]);
-
-  // 稳定在线节点列表：使用排序后的字符串作为依赖，避免数组引用变化
-  const onlineNodesKey = useMemo(() =>
-    (liveData?.online || []).slice().sort().join(','),
-    [liveData?.online]
-  );
 
   // 全局排序节点（应用权重+离线节点位置设置）
   const sortedFilteredNodes = useMemo(() => {
@@ -240,11 +275,14 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
 
       return a.weight - b.weight;
     });
-  }, [filteredNodes, onlineNodesKey, publicInfo]);
+  }, [filteredNodes, liveData?.online, publicInfo]);
 
   const totalFiltered = sortedFilteredNodes.length;
   const paginationApplies =
-    paginationEnabled && safeViewMode !== "task" && safeViewMode !== "earth";
+    paginationEnabled &&
+    safeViewMode !== "task" &&
+    safeViewMode !== "earth" &&
+    safeViewMode !== "asset";
 
   const totalPages = paginationApplies
     ? totalFiltered > 0
@@ -494,6 +532,13 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
           )}
           {safeViewMode === "earth" && (
             <NodeEarthView nodes={sortedFilteredNodes} liveData={liveData} />
+          )}
+          {safeViewMode === "asset" && (
+            <AssetView
+              nodes={sortedFilteredNodes}
+              liveData={liveData}
+              pingSummaryMap={pingSummaryMap}
+            />
           )}
         </>
       )}

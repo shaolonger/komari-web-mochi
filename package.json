@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mock:asset-regression-api": "node scripts/asset-regression-mock-server.mjs",
+    "audit:asset-math": "node --experimental-strip-types scripts/asset-release-audit.ts math",
+    "audit:asset-compat": "node --experimental-strip-types scripts/asset-release-audit.ts compat",
+    "audit:asset-release": "node --experimental-strip-types scripts/asset-release-audit.ts all"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

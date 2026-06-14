@@ -9,6 +9,7 @@ import Flag from './Flag';
 import CustomTags from './CustomTags';
 import type { NodeBasicInfo } from '@/contexts/NodeListContext';
 import type { Record as LiveNodeData } from '@/types/LiveData';
+import { formatAssetPriceTag, getAssetExpiryInfo } from '@/utils/assetMetrics';
 import './NodeCompactCard.css';
 
 interface NodeCompactCardProps {
@@ -24,44 +25,22 @@ const NodeCompactCard: React.FC<NodeCompactCardProps> = ({ basic, live, online }
 
   // 计算价格标签
   const priceTag = useMemo(() => {
-    if (basic.price === 0) return '';
-    if (basic.price === -1) return t("common.free");
-    
-    const cycle = basic.billing_cycle;
-    let cycleText = '';
-    if (cycle >= 27 && cycle <= 32) cycleText = t("common.monthly");
-    else if (cycle >= 87 && cycle <= 95) cycleText = t("common.quarterly");
-    else if (cycle >= 175 && cycle <= 185) cycleText = t("common.semi_annual");
-    else if (cycle >= 360 && cycle <= 370) cycleText = t("common.annual");
-    else if (cycle >= 720 && cycle <= 750) cycleText = t("common.biennial");
-    else if (cycle >= 1080 && cycle <= 1150) cycleText = t("common.triennial");
-    else if (cycle === -1) cycleText = t("common.once");
-    else cycleText = `${cycle} ${t("nodeCard.time_day")}`;
-    
-    return `${basic.currency || '￥'}${basic.price}/${cycleText}`;
-  }, [basic.price, basic.billing_cycle, basic.currency, t]);
+    return formatAssetPriceTag(basic, t);
+  }, [basic, t]);
 
   // 计算到期时间
   const expiryInfo = useMemo(() => {
-    if (!basic.expired_at || basic.price === 0) return null;
-    
-    const expiredDate = new Date(basic.expired_at);
-    const now = new Date();
-    const diffTime = expiredDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    let color: "red" | "orange" | "green";
-    if (diffDays <= 0 || diffDays <= 7) color = "red";
-    else if (diffDays <= 15) color = "orange";
-    else color = "green";
-    
-    let text: string;
-    if (diffDays <= 0) text = t("common.expired");
-    else if (diffDays > 36500) text = t("common.long_term");
-    else text = t("common.expired_in", { days: diffDays });
-    
-    return { color, text };
-  }, [basic.expired_at, basic.price, t]);
+    return getAssetExpiryInfo(basic, t);
+  }, [basic, t]);
+  const assetMetaLine = useMemo(() => {
+    return [
+      basic.business_role?.trim(),
+      basic.public_remark?.trim(),
+      basic.provider?.trim() || basic.group?.trim(),
+    ]
+      .filter((value, index, array) => Boolean(value) && array.indexOf(value) === index)
+      .join(" · ");
+  }, [basic.business_role, basic.group, basic.provider, basic.public_remark]);
 
   const cpuUsage = live?.cpu?.usage ?? 0;
   const memUsage = basic.mem_total > 0 && live?.ram?.used ? (live.ram.used / basic.mem_total) * 100 : 0;
@@ -130,10 +109,28 @@ const NodeCompactCard: React.FC<NodeCompactCardProps> = ({ basic, live, online }
                         {expiryInfo.text}
                       </Badge>
                     )}
+                    {basic.price > 0 && (
+                      <Badge
+                        color={basic.auto_renewal ? "green" : "amber"}
+                        variant="soft"
+                        size="1"
+                        className="text-[10px] px-1 py-0 whitespace-nowrap"
+                        style={{ lineHeight: '1.2' }}
+                      >
+                        {basic.auto_renewal
+                          ? t("asset.autoRenewal", { defaultValue: "Auto renew" })
+                          : t("asset.manualRenew", { defaultValue: "Manual renew" })}
+                      </Badge>
+                    )}
                   </div>
                 ) : (
                   /* 无标签时不添加占位元素，通过CSS类调整对齐 */
                   null
+                )}
+                {assetMetaLine && (
+                  <Text size="1" color="gray" className="truncate text-[11px]">
+                    {assetMetaLine}
+                  </Text>
                 )}
               </Flex>
             </Flex>

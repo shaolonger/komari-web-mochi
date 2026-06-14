@@ -1,5 +1,6 @@
 import React from "react";
 import { useRPC2Call } from "./RPC2Context";
+import { mapNodePayloadToBasicInfo } from "@/lib/nodePayload";
 
 export type NodeBasicInfo = {
   /** 节点唯一标识符 */
@@ -39,7 +40,20 @@ export type NodeBasicInfo = {
   tags: string;
   /** 账单周期（天）*/
   billing_cycle: number;
+  auto_renewal?: boolean;
   currency: string;
+  currency_code?: string;
+  provider?: string;
+  business_role?: string;
+  asset_ignored?: boolean;
+  public_remark?: string;
+  capability_ping?: boolean;
+  capability_terminal?: boolean;
+  capability_remote_exec?: boolean;
+  capability_remote_control?: boolean;
+  capability_gpu?: boolean;
+  capability_auto_update?: boolean;
+  capability_private_ping_targets?: boolean;
   
   group: string;
   /** 流量限制（字节） */
@@ -100,33 +114,9 @@ export const NodeListProvider: React.FC<{ children: React.ReactNode }> = ({
           setNodeList([]);
           return;
         }
-        const list: NodeBasicInfo[] = Object.values(result).map((n: any) => ({
-          uuid: n.uuid,
-          name: n.name,
-          cpu_name: n.cpu_name,
-          virtualization: n.virtualization,
-          arch: n.arch,
-          cpu_cores: n.cpu_cores,
-          os: n.os,
-          kernel_version: n.kernel_version,
-          gpu_name: n.gpu_name,
-          region: n.region,
-          mem_total: n.mem_total,
-          swap_total: n.swap_total,
-          disk_total: n.disk_total,
-          version: n.version ?? "",
-          weight: n.weight ?? 0,
-          price: n.price ?? 0,
-          tags: n.tags ?? "",
-          billing_cycle: n.billing_cycle ?? 0,
-          currency: n.currency ?? "",
-          group: n.group ?? "",
-          traffic_limit: n.traffic_limit ?? 0,
-          traffic_limit_type: n.traffic_limit_type,
-          expired_at: n.expired_at ?? "",
-          created_at: n.created_at ?? "",
-          updated_at: n.updated_at ?? "",
-        }));
+        const list: NodeBasicInfo[] = Object.values(result).map((n: any) =>
+          mapNodePayloadToBasicInfo(n),
+        );
         setNodeList(list);
       })
       .catch(async (err: any) => {
