@@ -7,6 +7,8 @@ import { useNodeList } from "@/contexts/NodeListContext";
 import Loading from "@/components/loading";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import StatusBar, { type StatusCardsVisibility } from "@/components/StatusBar";
+import HomeAssetOverview from "@/components/HomeAssetOverview";
+import { usePingSummaryMap } from "@/hooks/usePingSummaryMap";
 import "@/components/StatusBar.css";
 
 
@@ -45,6 +47,8 @@ const Index = () => {
       uploadTotal = values.reduce((acc, node) => acc + (node.network?.totalUp || 0), 0);
       downloadTotal = values.reduce((acc, node) => acc + (node.network?.totalDown || 0), 0);
     }
+
+    const pingSummaryMap = usePingSummaryMap(nodeList, 1);
     
     if (isLoading) {
       return <Loading />;
@@ -53,7 +57,7 @@ const Index = () => {
       return <div>Error: {error}</div>;
     }
     //#endregion
-    
+
     const uploadSpeed = live_data?.data?.data
       ? Object.values(live_data.data.data).reduce(
           (acc, node) => acc + (node.network.up || 0),
@@ -92,11 +96,19 @@ const Index = () => {
           statusCardsVisibility={statusCardsVisibility}
           onVisibilityChange={setStatusCardsVisibility}
         />
-        <NodeDisplay
+        <HomeAssetOverview
           nodes={nodeList ?? []}
           liveData={live_data?.data ?? { online: [], data: {} }}
-          forceShowTrafficText={statusCardsVisibility.forceShowTrafficText}
+          pingSummaryMap={pingSummaryMap}
         />
+        <div id="node-display">
+          <NodeDisplay
+            nodes={nodeList ?? []}
+            liveData={live_data?.data ?? { online: [], data: {} }}
+            pingSummaryMap={pingSummaryMap}
+            forceShowTrafficText={statusCardsVisibility.forceShowTrafficText}
+          />
+        </div>
       </>
     );
   };

@@ -25,6 +25,8 @@ import ViewModeSelector from "./ViewModeSelector";
 import ModernGridVirtual from "./ModernGridVirtual";
 import { usePublicInfo } from "@/contexts/PublicInfoContext";
 import AssetView from "./AssetView";
+import { ASSET_VIEW_MODE_EVENT } from "@/lib/assetNavigation";
+import type { PingSummaryMap } from "@/hooks/usePingSummaryMap";
 
 export type ViewMode =
   | "modern"
@@ -71,10 +73,16 @@ const parseBooleanSetting = (value: unknown, fallback: boolean) => {
 interface NodeDisplayProps {
   nodes: NodeBasicInfo[];
   liveData: LiveData;
+  pingSummaryMap?: PingSummaryMap;
   forceShowTrafficText?: boolean;
 }
 
-const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTrafficText }) => {
+const NodeDisplay: React.FC<NodeDisplayProps> = ({
+  nodes,
+  liveData,
+  pingSummaryMap,
+  forceShowTrafficText,
+}) => {
   const [t] = useTranslation();
   const isMobile = useIsMobile();
   const { publicInfo } = usePublicInfo();
@@ -110,6 +118,27 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
       setViewMode("modern");
     }
   }, [viewMode, setViewMode]);
+
+  useEffect(() => {
+    const handleViewModeRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: ViewMode }>).detail;
+      if (detail?.mode && VIEW_MODES.includes(detail.mode)) {
+        setViewMode(detail.mode);
+      }
+    };
+
+    window.addEventListener(
+      ASSET_VIEW_MODE_EVENT,
+      handleViewModeRequest as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        ASSET_VIEW_MODE_EVENT,
+        handleViewModeRequest as EventListener
+      );
+    };
+  }, [setViewMode]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedGroup, setSelectedGroup] = useLocalStorage<string>(
@@ -223,12 +252,6 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
     });
   }, [nodes, searchTerm, liveData, selectedGroup]);
 
-  // 稳定在线节点列表：使用排序后的字符串作为依赖，避免数组引用变化
-  const onlineNodesKey = useMemo(() =>
-    (liveData?.online || []).slice().sort().join(','),
-    [liveData?.online]
-  );
-
   // 全局排序节点（应用权重+离线节点位置设置）
   const sortedFilteredNodes = useMemo(() => {
     const onlineSet = new Set(liveData?.online || []);
@@ -252,7 +275,7 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
 
       return a.weight - b.weight;
     });
-  }, [filteredNodes, onlineNodesKey, publicInfo]);
+  }, [filteredNodes, liveData?.online, publicInfo]);
 
   const totalFiltered = sortedFilteredNodes.length;
   const paginationApplies =
@@ -511,7 +534,11 @@ const NodeDisplay: React.FC<NodeDisplayProps> = ({ nodes, liveData, forceShowTra
             <NodeEarthView nodes={sortedFilteredNodes} liveData={liveData} />
           )}
           {safeViewMode === "asset" && (
-            <AssetView nodes={sortedFilteredNodes} liveData={liveData} />
+            <AssetView
+              nodes={sortedFilteredNodes}
+              liveData={liveData}
+              pingSummaryMap={pingSummaryMap}
+            />
           )}
         </>
       )}

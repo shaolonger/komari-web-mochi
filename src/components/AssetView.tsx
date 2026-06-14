@@ -44,6 +44,13 @@ import {
 } from "./ui/table";
 import AssetStatsModal from "./AssetStatsModal";
 import AssetDetailsDialog from "./AssetDetailsDialog";
+import {
+  ASSET_FILTER_FOCUS_EVENT,
+  isAssetFocusFilterMode,
+  takeRequestedAssetFilter,
+  type AssetFocusFilterMode,
+} from "@/lib/assetNavigation";
+import type { PingSummaryMap } from "@/hooks/usePingSummaryMap";
 
 type SortMode =
   | "risk"
@@ -52,19 +59,17 @@ type SortMode =
   | "expiry"
   | "efficiency"
   | "name";
-type FilterMode =
-  | "all"
-  | "high"
-  | "expiring"
-  | "manual"
-  | "ignored"
-  | "metadata"
-  | "underused";
+type FilterMode = AssetFocusFilterMode;
 type ProviderSortMode = "monthly" | "remaining" | "risk" | "count";
+const STALE_REPORT_MINUTES = 10;
+const NETWORK_LOSS_WARN = 5;
+const NETWORK_LATENCY_WARN = 180;
+const NETWORK_JITTER_WARN = 0.6;
 
 interface AssetViewProps {
   nodes: NodeBasicInfo[];
   liveData: LiveData;
+  pingSummaryMap?: PingSummaryMap;
 }
 
 interface AssetRow {
@@ -81,6 +86,11 @@ interface AssetRow {
   trafficPercentage: number;
   cpuUsage: number;
   memoryUsage: number;
+  stale: boolean;
+  avgLatency: number | null;
+  packetLoss: number | null;
+  jitterRatio: number | null;
+  networkIssue: boolean;
   efficiencyScore: number;
   underused: boolean;
   metadataMissingFields: string[];
@@ -185,11 +195,18 @@ const getRoleLabel = (node: NodeBasicInfo, fallback: string) =>
 
 const todayDateString = () => new Date().toISOString().slice(0, 10);
 
-const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
+const AssetView: React.FC<AssetViewProps> = ({
+  nodes,
+  liveData,
+  pingSummaryMap = {},
+}) => {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
+  const [nowMs, setNowMs] = useState(() => new Date().getTime());
   const [sortMode, setSortMode] = useState<SortMode>("risk");
-  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [filterMode, setFilterMode] = useState<FilterMode>(
+    () => takeRequestedAssetFilter() ?? "all"
+  );
   const [providerFilter, setProviderFilter] = useState("all");
   const [currencyFilter, setCurrencyFilter] = useState("all");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -207,6 +224,35 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
     }
   );
 
+  useEffect(() => {
+    const handleRequestedFilter = (event: Event) => {
+      const detail = (event as CustomEvent<{ filter?: string }>).detail;
+      if (detail?.filter && isAssetFocusFilterMode(detail.filter)) {
+        setFilterMode(detail.filter);
+      }
+    };
+
+    window.addEventListener(
+      ASSET_FILTER_FOCUS_EVENT,
+      handleRequestedFilter as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        ASSET_FILTER_FOCUS_EVENT,
+        handleRequestedFilter as EventListener
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMs(new Date().getTime());
+    }, 60 * 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   const onlineSet = useMemo(
     () => new Set(liveData.online || []),
     [liveData.online]
@@ -222,12 +268,55 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         node.traffic_limit,
         node.traffic_limit_type
       );
+      const pingStats = Object.values(live?.ping ?? {});
+      const fallbackPingStats =
+        pingStats.length > 0
+          ? pingStats
+          : (pingSummaryMap[node.uuid] ?? []).map((task) => ({
+              name: task.name,
+              latest: task.max,
+              avg: task.avg,
+              tail: 0,
+              loss: task.loss,
+              min: task.min,
+              max: task.max,
+            }));
       const cpuUsage = live?.cpu?.usage ?? 0;
       const memoryUsage =
         node.mem_total && live?.ram?.used
           ? (live.ram.used / node.mem_total) * 100
           : 0;
       const daysRemaining = getDaysUntilExpiry(node.expired_at);
+      const updatedAt =
+        typeof live?.updated_at === "string"
+          ? new Date(live.updated_at)
+          : null;
+      const stale =
+        Boolean(live) &&
+        (!updatedAt ||
+          Number.isNaN(updatedAt.getTime()) ||
+          nowMs - updatedAt.getTime() >
+            STALE_REPORT_MINUTES * 60 * 1000);
+      const worstPing = fallbackPingStats.reduce((worst, current) => {
+        if (!worst) return current;
+        const currentScore =
+          current.loss * 4 + current.tail * 3 + current.avg / 100;
+        const worstScore =
+          worst.loss * 4 + worst.tail * 3 + worst.avg / 100;
+        return currentScore > worstScore ? current : worst;
+      }, pingStats[0]);
+      const avgLatency =
+        worstPing && Number.isFinite(worstPing.avg) && worstPing.avg > 0
+          ? worstPing.avg
+          : null;
+      const packetLoss =
+        worstPing && Number.isFinite(worstPing.loss) ? worstPing.loss : null;
+      const jitterRatio =
+        worstPing && Number.isFinite(worstPing.tail) ? worstPing.tail : null;
+      const networkIssue =
+        (packetLoss !== null && packetLoss >= NETWORK_LOSS_WARN) ||
+        (avgLatency !== null && avgLatency >= NETWORK_LATENCY_WARN) ||
+        (jitterRatio !== null && jitterRatio >= NETWORK_JITTER_WARN);
       const metadataMissingFields: string[] = [];
       const riskReasons: string[] = [];
       let riskScore = 0;
@@ -258,6 +347,14 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           t("asset.riskOffline", { defaultValue: "Offline or stale" })
         );
         riskScore += 4;
+      }
+      if (stale) {
+        riskReasons.push(
+          t("asset.riskDataStale", {
+            defaultValue: "Telemetry is stale and should be refreshed",
+          })
+        );
+        riskScore += 2;
       }
       if (daysRemaining !== null && daysRemaining <= 7) {
         riskReasons.push(
@@ -301,6 +398,14 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           })
         );
         riskScore += 1;
+      }
+      if (networkIssue) {
+        riskReasons.push(
+          t("asset.riskNetworkQuality", {
+            defaultValue: "Recent ping quality shows elevated latency, loss, or jitter",
+          })
+        );
+        riskScore += 2;
       }
       if (node.asset_ignored) {
         riskReasons.push(
@@ -389,6 +494,11 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         trafficPercentage: trafficStats.percentage,
         cpuUsage,
         memoryUsage,
+        stale,
+        avgLatency,
+        packetLoss,
+        jitterRatio,
+        networkIssue,
         efficiencyScore,
         underused,
         metadataMissingFields,
@@ -397,7 +507,7 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
         riskReasons,
       };
     });
-  }, [liveData.data, nodes, onlineSet, t]);
+  }, [liveData.data, nodes, nowMs, onlineSet, pingSummaryMap, t]);
 
   const filteredRows = useMemo(() => {
     return assetRows.filter((row) => {
@@ -430,6 +540,14 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
           return row.metadataMissingFields.length > 0;
         case "underused":
           return row.underused;
+        case "offline":
+          return !row.online;
+        case "traffic":
+          return row.trafficPercentage >= 75;
+        case "network":
+          return row.networkIssue;
+        case "stale":
+          return row.stale;
         case "all":
         default:
           return true;
@@ -1082,6 +1200,24 @@ const AssetView: React.FC<AssetViewProps> = ({ nodes, liveData }) => {
                 <option value="underused">
                   {t("asset.filterUnderused", {
                     defaultValue: "Underused",
+                  })}
+                </option>
+                <option value="offline">
+                  {t("asset.filterOffline", { defaultValue: "Offline" })}
+                </option>
+                <option value="traffic">
+                  {t("asset.filterTraffic", {
+                    defaultValue: "Traffic pressure",
+                  })}
+                </option>
+                <option value="network">
+                  {t("asset.filterNetwork", {
+                    defaultValue: "Network quality",
+                  })}
+                </option>
+                <option value="stale">
+                  {t("asset.filterStale", {
+                    defaultValue: "Stale telemetry",
                   })}
                 </option>
               </select>

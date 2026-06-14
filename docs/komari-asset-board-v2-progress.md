@@ -80,8 +80,8 @@ Recent feature commits already present in the audited branches:
 | Idle / underused asset identification | REVIEW | Underused filters and queues exist, but waste estimate and key-node exclusion are incomplete. |
 | Asset decision labels | TODO | No retain/observe/renew/reclaim label system yet. |
 | Node card asset semantics enhancement | REVIEW | Price and expiry tags exist; role, remark, and auto-renew signaling are not fully surfaced on cards. |
-| Homepage alert strip | TODO | `src/pages/Index.tsx` still renders only callouts, status bar, and node display. |
-| Latency / loss summary frontload | TODO | Ping summary is still concentrated in details cards, not promoted to homepage cards or asset list. |
+| Homepage alert strip | DONE | `HomeAssetOverview.tsx` adds homepage alert cards for offline, renew-soon, traffic, network quality, and stale telemetry, with routing into asset filters. |
+| Latency / loss summary frontload | DONE | `HomeAssetOverview.tsx` adds a 1h network watch block with latency/loss/jitter summary support and a graceful empty state. |
 | `public_remark` / `auto_renewal` field usage | DONE | Both are mapped in `NodeListContext.tsx`; `public_remark` is used by asset details and search. |
 | Backend asset fields (`provider`, `currency_code`, `asset_ignored`, `business_role`) | DONE | Server model, validation, and APIs are already present. |
 | Admin-side asset editing and completeness validation | REVIEW | Batch edit and metadata-gap surfacing exist, but a dedicated core admin edit experience is still incomplete. |
@@ -114,9 +114,9 @@ Recent feature commits already present in the audited branches:
 | A05 | REVIEW | P1 | `komari-web-mochi` | Asset detail drawer / side panel | `AssetDetailsDialog.tsx` exists and shows provider, role, billing, capabilities, and risk; 1h/7d operational summary is still incomplete and current UI is a dialog rather than a drawer. |
 | A06 | TODO | P1 | `komari-web-mochi` | Renewal timeline | No dedicated timeline view or clickable time-bucket flow is present yet. |
 | A07 | REVIEW | P1 | `komari-web-mochi` | Risk layered filtering | High-risk and other derived filters exist; medium/low layered filtering and full rule explanation are not complete. |
-| A08 | TODO | P1 | `komari-web-mochi` | Homepage top alert summary strip | `src/pages/Index.tsx` has no asset alert summary yet. |
+| A08 | DONE | P1 | `komari-web-mochi` | Homepage top alert summary strip | `HomeAssetOverview.tsx` now surfaces offline, renew-soon, traffic, network-quality, and stale-telemetry alerts, and verified routing into asset filters. |
 | A09 | REVIEW | P1 | `komari-web-mochi` | Node card asset semantics enhancement | `NodeModernCardStatic.tsx` and `NodeCompactCard.tsx` show asset price and expiry tags, but `public_remark`, business role, and explicit auto-renew state are not fully expressed. |
-| A10 | TODO | P1 | `komari-web-mochi` | Frontload latency / packet loss summary | Ping current/avg/loss stays in `DesktopDetailsCard.tsx` and `MobileDetailsCard.tsx`; it has not been elevated into list/card summaries. |
+| A10 | DONE | P1 | `komari-web-mochi` | Frontload latency / packet loss summary | Homepage now includes a `1h network watch` block that surfaces average latency, packet loss, and jitter support with ping-summary fallback and empty-state handling. |
 | A11 | TODO | P1 | `komari-web-mochi` | Asset decision label system | No retain/observe/renew/reclaim label system yet. |
 | A12 | REVIEW | P1 | `komari-web-mochi` | Idle / underused asset view | Underused detection and filtering exist in `AssetView.tsx` and `/manage`, but key-node exclusion and waste estimate are not finished. |
 | A13 | REVIEW | P2 | `komari-web-mochi` | Provider / group / currency aggregation analysis | Provider and currency aggregation are present; group-specific aggregation switching is still incomplete. |
@@ -166,8 +166,8 @@ Recent feature commits already present in the audited branches:
 
 | ID | Status | Priority | Repo | Task | Audit notes |
 | --- | --- | --- | --- | --- | --- |
-| F01 | TODO | P1 | `komari-web-mochi` | Homepage asset summary entry | Homepage still lacks a compact asset summary entry or direct jump into statistics. |
-| F02 | TODO | P1 | `komari-web-mochi` | Natural-language homepage risk summary | No sentence-style summary such as expiring/high-loss/manual-renew counts exists on the homepage yet. |
+| F01 | DONE | P1 | `komari-web-mochi` | Homepage asset summary entry | `HomeAssetOverview.tsx` adds first-screen asset KPI cards plus direct `Open asset view` and `Open asset desk` entry points. |
+| F02 | DONE | P1 | `komari-web-mochi` | Natural-language homepage risk summary | Homepage hero now renders sentence-style portfolio summaries such as renewals, manual-renew exposure, offline nodes, and network pressure. |
 | F03 | TODO | P2 | `komari-web-mochi` | Enrich existing detail page with asset info | The classic instance detail views still do not expose the same asset metadata depth as `AssetDetailsDialog.tsx`. |
 
 ### G. Regression, validation, and release readiness
@@ -183,9 +183,9 @@ Recent feature commits already present in the audited branches:
 
 | Status | Count |
 | --- | ---: |
-| DONE | 12 |
+| DONE | 16 |
 | REVIEW | 18 |
-| TODO | 11 |
+| TODO | 7 |
 | DOING | 0 |
 | BLOCKED | 0 |
 
@@ -193,25 +193,21 @@ Recent feature commits already present in the audited branches:
 
 Recommended next implementation order based on current gaps:
 
-1. Homepage closure
-   - `A08`
-   - `F01`
-   - `F02`
-   - `A10`
-2. Asset detail and risk closure
+1. Asset detail and risk closure
    - `A05`
    - `A07`
    - `A11`
    - `A12`
    - `A14`
-3. Server and governance closure
+2. Server and governance closure
    - `C04`
    - `D01`
    - `D02`
    - `D03`
    - `D04`
    - `D06`
-4. Release-readiness closure
+3. Existing detail and release-readiness closure
+   - `F03`
    - `G01`
    - `G02`
    - `G03`
