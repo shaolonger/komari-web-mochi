@@ -1,6 +1,6 @@
 # Komari Asset Practicality Board v2 Progress
 
-Audit date: 2026-06-13  
+Audit date: 2026-06-14  
 Audit scope:
 - `/Users/shaolong/Code/personal/komari`
 - `/Users/shaolong/Code/personal/komari-agent`
@@ -39,6 +39,9 @@ Key evidence used in this audit:
   - `src/components/MobileDetailsCard.tsx`
   - `src/components/PriceTags.tsx`
   - `src/pages/Index.tsx`
+  - `scripts/asset-regression-mock-server.mjs`
+  - `docs/asset-release-regression.md`
+  - `docs/asset-release-ops.md`
 - Server-side asset model and APIs:
   - `database/models/models.go`
   - `database/clients/client.go`
@@ -109,7 +112,7 @@ Recent feature commits already present in the audited branches:
 | M2 | Asset view MVP | Front-end asset view, KPI, and inventory are usable | DONE | `AssetView.tsx`, `AssetStatsModal.tsx`, and the drawer-based `AssetDetailsDialog.tsx` now satisfy the MVP asset-view loop. |
 | M3 | Risk and governance loop | Renewals, risk, capability, and ops assurance all visible | DONE | Renewals, risk queues, capability gaps, token/notification/version/task governance, and observation quality are all visible now. |
 | M4 | Decision support enhancement | Idle detection, decision labels, and scoring go live | DONE | Theme-side decisions are live and server-side traceable value scoring is now exposed through admin asset APIs. |
-| M5 | Release readiness | Regression passed, docs complete, ready to ship | TODO | Still missing final regression matrix, compatibility audit, and release docs. |
+| M5 | Release readiness | Regression passed, docs complete, ready to ship | DONE | `docs/asset-release-regression.md` and `docs/asset-release-ops.md` now record the responsive matrix, fixture workflow, release checklist, and rollback path; `npm run audit:asset-release` and `npm run build` pass. |
 
 ## 4. Detailed task board
 
@@ -185,28 +188,23 @@ Recent feature commits already present in the audited branches:
 | ID | Status | Priority | Repo | Task | Audit notes |
 | --- | --- | --- | --- | --- | --- |
 | G01 | DONE | P0 | all | Validate calculation rules | `scripts/asset-release-audit.ts` now validates the front-end asset formulas against the same representative billing matrix used by backend asset tests, and `go test ./api/admin -run 'TestBuildClientAssetSummary|TestBuildClientAssetInventoryFiltersAndSorts|TestBuildClientAssetInventoryIncludesGovernanceAndValueSignals'` confirms the server side. |
-| G02 | REVIEW | P1 | all | Desktop / mobile regression | Theme build, targeted lint, Go tests, and mocked `/manage` browser rendering all pass, but a full multi-page desktop/mobile regression matrix is still not recorded. |
+| G02 | DONE | P1 | all | Desktop / mobile regression | `scripts/asset-regression-mock-server.mjs` now provides reproducible fixture data for the theme, and `docs/asset-release-regression.md` records PASS evidence for desktop/mobile homepage asset view, stats modal, detail drawer, and `/manage` workbench with zero horizontal overflow. |
 | G03 | DONE | P1 | all | Legacy-data compatibility and fallback | `src/lib/nodePayload.ts` now centralizes old-node payload fallback mapping, `src/lib/assetAdminApi.ts` exports explicit summary/issues/inventory normalizers with governance defaults, and `npm run audit:asset-compat` verifies representative legacy payloads. |
-| G04 | TODO | P2 | all | Documentation and release checklist | Release docs, field docs, and rollback checklist are still missing. |
+| G04 | DONE | P2 | all | Documentation and release checklist | `docs/asset-release-regression.md` now documents the fixture-backed regression path and verification commands, while `docs/asset-release-ops.md` adds field definitions, KPI glossary, release checklist, and rollback checklist. |
 
 ## 5. Current totals
 
 | Status | Count |
 | --- | ---: |
-| DONE | 39 |
-| REVIEW | 1 |
-| TODO | 1 |
+| DONE | 41 |
+| REVIEW | 0 |
+| TODO | 0 |
 | DOING | 0 |
 | BLOCKED | 0 |
 
 ## 6. Immediate next batches
 
-Recommended next implementation order based on current gaps:
-
-1. Existing release-readiness closure
-   - `G02`
-   - `G04`
-   - `G04`
+All board items in the current scope are now marked `DONE`.
 
 ## 7. Update rule for this file
 
