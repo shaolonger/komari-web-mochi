@@ -40,10 +40,14 @@ Key evidence used in this audit:
 - Server-side asset model and APIs:
   - `database/models/models.go`
   - `database/clients/client.go`
+  - `database/assetfx/assetfx.go`
+  - `api/admin/client_asset_evaluation.go`
   - `api/admin/client.go`
+  - `api/admin/asset_fx.go`
   - `api/admin/client_asset_summary.go`
   - `api/admin/client_asset_issues.go`
   - `api/admin/client_asset_inventory.go`
+  - `api/public/asset_fx.go`
   - `cmd/server.go`
 - Agent capability reporting:
   - `server/basicInfo.go`
@@ -78,7 +82,7 @@ Recent feature commits already present in the audited branches:
 | Asset statistics modal | DONE | `AssetStatsModal.tsx` is wired from `AssetView.tsx`. |
 | Asset count / monthly / annualized / remaining value | DONE | KPI and modal are present in `AssetView.tsx` and `AssetStatsModal.tsx`. |
 | Provider aggregation | DONE | Implemented in `AssetView.tsx`, `AssetStatsModal.tsx`, and backend summary API. |
-| FX display and refresh | REVIEW | Theme supports manual normalization state; backend FX source/update flow is not built yet. |
+| FX display and refresh | DONE | Server-side FX snapshot fetch/cache/refresh is now available through `database/assetfx/assetfx.go`, `api/public/asset_fx.go`, and `api/admin/asset_fx.go`; `AssetView.tsx` consumes the snapshot to prefill rates and update time. |
 | Renewal exposure | DONE | 7-day and 30-day exposure exist in theme and backend summary. |
 | High-risk asset identification | DONE | `risk_score`, `high_risk`, issue queues, and filters already exist. |
 | Idle / underused asset identification | DONE | `src/utils/assetSignals.ts` now excludes protected assets from reclaim suggestions, `AssetView.tsx` exposes idle-spend filters/queues, and details show estimated monthly waste. |
@@ -88,9 +92,9 @@ Recent feature commits already present in the audited branches:
 | Latency / loss summary frontload | DONE | `HomeAssetOverview.tsx` adds a 1h network watch block with latency/loss/jitter summary support and a graceful empty state. |
 | `public_remark` / `auto_renewal` field usage | DONE | Both are mapped in `NodeListContext.tsx`; `public_remark` is used by asset details and search. |
 | Backend asset fields (`provider`, `currency_code`, `asset_ignored`, `business_role`) | DONE | Server model, validation, and APIs are already present. |
-| Admin-side asset editing and completeness validation | REVIEW | Batch edit and metadata-gap surfacing exist, but a dedicated core admin edit experience is still incomplete. |
-| Asset governance panel | REVIEW | Theme `/manage` provides an operations workbench, but the core admin side is not fully closed. |
-| Token / notification / task-result / agent-version governance | REVIEW | Token lifecycle endpoints exist; a unified governance panel is still missing. |
+| Admin-side asset editing and completeness validation | DONE | `/manage` batch maintenance now covers provider/currency/role/ignore/auto-renew/governance fields, and metadata gaps are visible in both queues and the inventory table. |
+| Asset governance panel | DONE | `/manage` now includes a dedicated `Ops Assurance` governance section plus governance-rich inventory rows. |
+| Token / notification / task-result / agent-version governance | DONE | Server-side governance summary now aggregates token state, notification coverage, recent task failures, version drift, and observation quality; `/manage` consumes and displays it. |
 | Agent capability reporting | DONE | Agent reports capability flags in `server/basicInfo.go`, server persists them. |
 | Capability gaps included in asset risk | DONE | Backend issue reasons and frontend asset details already surface capability-related risk. |
 | Asset value / risk scoring | DONE | Theme-side value/risk scoring and explanation are now exposed through `src/utils/assetSignals.ts`, `AssetView.tsx`, and `AssetDetailsDialog.tsx`. |
@@ -99,10 +103,10 @@ Recent feature commits already present in the audited branches:
 
 | Milestone | Goal | Completion condition | Status | Notes |
 | --- | --- | --- | --- | --- |
-| M1 | Asset data foundation | Core asset fields can be maintained, distributed, and consumed | REVIEW | Field model and APIs are done, but maintenance UX and validation loop are only partially closed. |
+| M1 | Asset data foundation | Core asset fields can be maintained, distributed, and consumed | DONE | Asset fields, governance fields, validation, and management-side maintenance are now closed across server and theme. |
 | M2 | Asset view MVP | Front-end asset view, KPI, and inventory are usable | DONE | `AssetView.tsx`, `AssetStatsModal.tsx`, and the drawer-based `AssetDetailsDialog.tsx` now satisfy the MVP asset-view loop. |
-| M3 | Risk and governance loop | Renewals, risk, capability, and ops assurance all visible | REVIEW | Risk queues exist; homepage and governance panels are still incomplete. |
-| M4 | Decision support enhancement | Idle detection, decision labels, and scoring go live | REVIEW | Theme-side decision support is live, but server-side traceable value-scoring (`C06`) still needs to be finalized. |
+| M3 | Risk and governance loop | Renewals, risk, capability, and ops assurance all visible | DONE | Renewals, risk queues, capability gaps, token/notification/version/task governance, and observation quality are all visible now. |
+| M4 | Decision support enhancement | Idle detection, decision labels, and scoring go live | DONE | Theme-side decisions are live and server-side traceable value scoring is now exposed through admin asset APIs. |
 | M5 | Release readiness | Regression passed, docs complete, ready to ship | TODO | Still missing final regression matrix, compatibility audit, and release docs. |
 
 ## 4. Detailed task board
@@ -143,20 +147,20 @@ Recent feature commits already present in the audited branches:
 | C01 | DONE | P0 | `komari` | Asset core field expansion | `database/models/models.go` now includes `provider`, `currency_code`, `asset_ignored`, `business_role`, `auto_renewal`, and related fields. |
 | C02 | DONE | P0 | `komari` | Client asset field API integration | Field read/write is available through `/api/nodes`, admin asset APIs, and validation in `database/clients/client.go`. |
 | C03 | DONE | P1 | `komari` | Asset summary API | `GetClientAssetSummary`, `GetClientAssetIssues`, and `GetClientAssetInventory` are all wired in `cmd/server.go`. |
-| C04 | TODO | P1 | `komari` | FX capability and update time | No server-side FX source, refresh endpoint, or persistent update time is implemented yet. |
+| C04 | DONE | P1 | `komari` | FX capability and update time | `database/assetfx/assetfx.go` now fetches and caches FX snapshots, `api/public/asset_fx.go` exposes them to the theme, and `api/admin/asset_fx.go` provides an explicit refresh path with stale fallback. |
 | C05 | DONE | P1 | `komari` | Backend risk support | `api/admin/client_asset_issues.go` and related assessment code already output risk flags, reasons, and counts. |
-| C06 | REVIEW | P2 | `komari` | Asset scoring output | `risk_score` and `efficiency_score` are already returned, but a stable value-score model with factor traceability is not complete. |
+| C06 | DONE | P2 | `komari` | Asset scoring output | `api/admin/client_asset_evaluation.go`, `client_asset_inventory.go`, and `client_asset_issues.go` now emit `value_score` plus factor traceability, alongside the existing risk model. |
 
 ### D. Management and governance capabilities
 
 | ID | Status | Priority | Repo | Task | Audit notes |
 | --- | --- | --- | --- | --- | --- |
-| D01 | REVIEW | P0 | `komari` | Maintain asset fields from management side | `BatchEditClientAssets` exists and `/manage` can batch update provider/currency/role/ignored/auto-renew, but a full core admin edit form is not yet confirmed. |
-| D02 | REVIEW | P0 | `komari` | Asset field completeness validation | Validation exists in `database/clients/client.go`, and metadata gaps are surfaced by asset summary/issues/workbench, but the full edit-page feedback loop is still partial. |
-| D03 | REVIEW | P1 | `komari` | Asset governance panel | Theme `/manage` already provides summary, queues, filters, and inventory, but the core server-side admin experience is not fully consolidated. |
-| D04 | REVIEW | P1 | `komari` | Ops assurance panel | Token lifecycle APIs exist (`GetClientToken`, `RotateClientToken`, `ReissueClientToken`, `RevokeClientToken`), but a unified panel for tokens, notifications, task results, and agent drift is not present. |
-| D05 | REVIEW | P1 | `komari` | Risk / asset linked filtering | High-risk, metadata-gap, underused, and related filters exist through `/manage` and asset inventory APIs; capability-missing drill-down is still partial. |
-| D06 | TODO | P2 | `komari` | Ops remarks and governance action suggestions | No dedicated manual governance notes / observe-ignore workflow exists yet. |
+| D01 | DONE | P0 | `komari` | Maintain asset fields from management side | `/manage` batch maintenance now updates provider, role, currency, ignore state, auto-renew, governance status, and governance note through `BatchEditClientAssets`. |
+| D02 | DONE | P0 | `komari` | Asset field completeness validation | `database/clients/client.go` validates the expanded asset/governance fields, while `/manage` exposes metadata-gap queues and per-row missing-field badges. |
+| D03 | DONE | P1 | `komari` | Asset governance panel | `/manage` now combines portfolio summary, issue queues, ops assurance, governance filters, and governance-rich inventory rows into one consolidated governance desk. |
+| D04 | DONE | P1 | `komari` | Ops assurance panel | `client_asset_summary.go` now aggregates token state, notification coverage, recent task failures, version drift, and observation quality; `/manage` renders them in `Ops Assurance`. |
+| D05 | DONE | P1 | `komari` | Risk / asset linked filtering | Inventory filtering now includes capability gaps, stale observation, version drift, token attention, and governance-watch lanes in addition to the existing risk filters. |
+| D06 | DONE | P2 | `komari` | Ops remarks and governance action suggestions | `models.Client` and `database/clients/client.go` now support governance status/note, and `/manage` can write and display observe/ignored/resolved workflows. |
 
 ### E. Agent capabilities and observability completeness
 
@@ -164,7 +168,7 @@ Recent feature commits already present in the audited branches:
 | --- | --- | --- | --- | --- | --- |
 | E01 | DONE | P1 | `komari-agent` | Agent capability reporting | `server/basicInfo.go` reports `capability_ping`, `capability_terminal`, `capability_remote_exec`, `capability_remote_control`, `capability_gpu`, `capability_auto_update`, and `capability_private_ping_targets`. |
 | E02 | DONE | P1 | `komari` + `komari-web-mochi` | Include capability gaps in asset risk | Backend issue reasons include capability gaps; `AssetDetailsDialog.tsx` and `/manage` consume them. |
-| E03 | REVIEW | P2 | `komari-agent` + `komari` | Version and observation-quality enhancements | Version data exists and capability metadata is persisted, but dedicated version-drift and observation-quality governance is not finished. |
+| E03 | DONE | P2 | `komari-agent` + `komari` | Version and observation-quality enhancements | Agent version drift and observation quality are now computed server-side and surfaced through admin asset APIs plus the `/manage` governance workbench. |
 
 ### F. Homepage and existing-view enhancements
 
@@ -178,18 +182,18 @@ Recent feature commits already present in the audited branches:
 
 | ID | Status | Priority | Repo | Task | Audit notes |
 | --- | --- | --- | --- | --- | --- |
-| G01 | REVIEW | P0 | all | Validate calculation rules | There is reusable metrics code and some server-side tests, but no finished cross-cycle parity matrix proving FE/BE formulas end to end. |
-| G02 | REVIEW | P1 | all | Desktop / mobile regression | Asset workbench was browser-verified and theme builds pass, but no full homepage/asset/mobile regression matrix is recorded yet. |
-| G03 | REVIEW | P1 | all | Legacy-data compatibility and fallback | Null-array normalization and field defaults exist, but full old-data compatibility coverage across all new views is still incomplete. |
+| G01 | REVIEW | P0 | all | Validate calculation rules | Server tests continue to cover asset assessment helpers, but a finished cross-cycle parity matrix for FE/BE formulas is still missing. |
+| G02 | REVIEW | P1 | all | Desktop / mobile regression | Theme build, targeted lint, Go tests, and mocked `/manage` browser rendering all pass, but a full multi-page desktop/mobile regression matrix is still not recorded. |
+| G03 | REVIEW | P1 | all | Legacy-data compatibility and fallback | Summary/inventory normalization now includes governance defaults and array fallbacks, but full old-data compatibility coverage across every new view still needs a dedicated sweep. |
 | G04 | TODO | P2 | all | Documentation and release checklist | Release docs, field docs, and rollback checklist are still missing. |
 
 ## 5. Current totals
 
 | Status | Count |
 | --- | ---: |
-| DONE | 28 |
-| REVIEW | 8 |
-| TODO | 3 |
+| DONE | 37 |
+| REVIEW | 3 |
+| TODO | 1 |
 | DOING | 0 |
 | BLOCKED | 0 |
 
@@ -197,17 +201,11 @@ Recent feature commits already present in the audited branches:
 
 Recommended next implementation order based on current gaps:
 
-1. Server and governance closure
-   - `C04`
-   - `D01`
-   - `D02`
-   - `D03`
-   - `D04`
-   - `D06`
-2. Existing release-readiness closure
+1. Existing release-readiness closure
    - `G01`
    - `G02`
    - `G03`
+   - `G04`
    - `G04`
 
 ## 7. Update rule for this file

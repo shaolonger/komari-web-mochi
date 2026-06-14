@@ -67,6 +67,8 @@ interface AssetStatsModalProps {
   providerSortMode: string;
   onProviderSortModeChange: (value: string) => void;
   rateUpdatedAt: string;
+  rateSource?: string;
+  rateWarning?: string;
   onRateUpdatedAtChange: (value: string) => void;
   rateInputs: RateInputItem[];
   onRateChange: (currencyKey: string, nextValue: string) => void;
@@ -172,6 +174,8 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
   providerSortMode,
   onProviderSortModeChange,
   rateUpdatedAt,
+  rateSource,
+  rateWarning,
   onRateUpdatedAtChange,
   rateInputs,
   onRateChange,
@@ -196,9 +200,12 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
         <Flex direction="column" gap="4">
           <div className="grid gap-3 lg:grid-cols-2">
             <SectionCard
-              title={t("asset.statsOverview", { defaultValue: "Portfolio overview" })}
+              title={t("asset.statsOverview", {
+                defaultValue: "Portfolio overview",
+              })}
               description={t("asset.statsOverviewHint", {
-                defaultValue: "Native-currency totals from the currently filtered asset scope.",
+                defaultValue:
+                  "Native-currency totals from the currently filtered asset scope.",
               })}
             >
               <Flex direction="column" gap="2">
@@ -219,7 +226,9 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
                   value={ignoredAssets}
                 />
                 <StatRow
-                  label={t("asset.highRisk", { defaultValue: "High-risk assets" })}
+                  label={t("asset.highRisk", {
+                    defaultValue: "High-risk assets",
+                  })}
                   value={highRiskAssets}
                 />
                 <StatRow
@@ -227,7 +236,9 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
                   value={monthlySpend}
                 />
                 <StatRow
-                  label={t("asset.annualized", { defaultValue: "Annualized spend" })}
+                  label={t("asset.annualized", {
+                    defaultValue: "Annualized spend",
+                  })}
                   value={annualizedSpend}
                 />
                 <StatRow
@@ -252,7 +263,9 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
             </SectionCard>
 
             <SectionCard
-              title={t("asset.fxControls", { defaultValue: "Normalization controls" })}
+              title={t("asset.fxControls", {
+                defaultValue: "Normalization controls",
+              })}
               description={t("asset.fxControlsHint", {
                 defaultValue:
                   "Use a base currency and manual rates to normalize spend across suppliers.",
@@ -260,7 +273,9 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
             >
               <Flex gap="3" wrap="wrap">
                 <SelectField
-                  label={t("asset.baseCurrency", { defaultValue: "Base currency" })}
+                  label={t("asset.baseCurrency", {
+                    defaultValue: "Base currency",
+                  })}
                   value={baseCurrency}
                   onChange={onBaseCurrencyChange}
                   options={baseCurrencyOptions.map((option) => ({
@@ -277,15 +292,21 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
                   options={[
                     {
                       value: "monthly",
-                      label: t("asset.sortMonthly", { defaultValue: "Monthly spend" }),
+                      label: t("asset.sortMonthly", {
+                        defaultValue: "Monthly spend",
+                      }),
                     },
                     {
                       value: "remaining",
-                      label: t("asset.sortRemaining", { defaultValue: "Remaining value" }),
+                      label: t("asset.sortRemaining", {
+                        defaultValue: "Remaining value",
+                      }),
                     },
                     {
                       value: "risk",
-                      label: t("asset.sortRisk", { defaultValue: "Risk count" }),
+                      label: t("asset.sortRisk", {
+                        defaultValue: "Risk count",
+                      }),
                     },
                     {
                       value: "count",
@@ -304,11 +325,28 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
                   <input
                     type="date"
                     value={rateUpdatedAt}
-                    onChange={(event) => onRateUpdatedAtChange(event.target.value)}
+                    onChange={(event) =>
+                      onRateUpdatedAtChange(event.target.value)
+                    }
                     className="h-9 rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
                   />
                 </label>
               </Flex>
+
+              {rateSource ? (
+                <Flex direction="column" gap="1">
+                  <Text size="1" color="gray">
+                    {t("asset.fxSource", {
+                      defaultValue: `Server snapshot: ${rateSource}`,
+                    })}
+                  </Text>
+                  {rateWarning ? (
+                    <Text size="1" color="amber">
+                      {rateWarning}
+                    </Text>
+                  ) : null}
+                </Flex>
+              ) : null}
 
               {missingRateCurrencies.length > 0 ? (
                 <Flex gap="2" wrap="wrap">
@@ -326,7 +364,8 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
               ) : (
                 <Badge color="green" variant="soft">
                   {t("asset.fxReady", {
-                    defaultValue: "Normalized totals are available for all visible currencies",
+                    defaultValue:
+                      "Normalized totals are available for all visible currencies",
                   })}
                 </Badge>
               )}
@@ -474,8 +513,8 @@ const AssetStatsModal: React.FC<AssetStatsModalProps> = ({
                         </Text>
                         <Text size="1" color="gray">
                           {item.count}{" "}
-                          {t("asset.assetsSuffix", { defaultValue: "assets" })} ·{" "}
-                          {item.shareLabel}
+                          {t("asset.assetsSuffix", { defaultValue: "assets" })}{" "}
+                          · {item.shareLabel}
                         </Text>
                       </Flex>
                       <Flex align="center" gap="2" wrap="wrap" justify="end">

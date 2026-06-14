@@ -1,26 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Badge,
-  Button,
-  Card,
-  Flex,
-  Text,
-} from "@radix-ui/themes";
-import {
-  BarChart3,
-  Clock3,
-  ShieldAlert,
-  Server,
-  Wallet,
-} from "lucide-react";
+import { Badge, Button, Card, Flex, Text } from "@radix-ui/themes";
+import { BarChart3, Clock3, ShieldAlert, Server, Wallet } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import type { NodeBasicInfo } from "@/contexts/NodeListContext";
 import type { LiveData } from "@/types/LiveData";
 import { useIsMobile } from "@/hooks/use-mobile";
-import {
-  formatBytes,
-} from "@/utils";
+import { formatBytes } from "@/utils";
 import {
   formatCurrencyAmount,
   formatCurrencySummary,
@@ -46,6 +32,7 @@ import {
 } from "./ui/table";
 import AssetStatsModal from "./AssetStatsModal";
 import AssetDetailsDialog from "./AssetDetailsDialog";
+import { getAssetFxSnapshot, type AssetFxSnapshot } from "@/lib/assetFxApi";
 import {
   ASSET_FILTER_FOCUS_EVENT,
   isAssetFocusFilterMode,
@@ -267,7 +254,10 @@ const formatRenewalExposureLabel = (rows: AssetRow[]) => {
   rows.forEach((row) => {
     if (row.node.asset_ignored || row.node.price <= 0) return;
     const currencyLabel = row.node.currency || row.node.currency_code || "?";
-    grouped.set(currencyLabel, (grouped.get(currencyLabel) ?? 0) + row.node.price);
+    grouped.set(
+      currencyLabel,
+      (grouped.get(currencyLabel) ?? 0) + row.node.price,
+    );
   });
 
   if (grouped.size === 0) return "0";
@@ -289,7 +279,7 @@ const AssetView: React.FC<AssetViewProps> = ({
   const [nowMs, setNowMs] = useState(() => new Date().getTime());
   const [sortMode, setSortMode] = useState<SortMode>("risk");
   const [filterMode, setFilterMode] = useState<FilterMode>(
-    () => takeRequestedAssetFilter() ?? "all"
+    () => takeRequestedAssetFilter() ?? "all",
   );
   const [providerFilter, setProviderFilter] = useState("all");
   const [currencyFilter, setCurrencyFilter] = useState("all");
@@ -297,7 +287,11 @@ const AssetView: React.FC<AssetViewProps> = ({
   const [aggregationDimension, setAggregationDimension] =
     useState<AggregationDimension>("provider");
   const [statsOpen, setStatsOpen] = useState(false);
-  const [selectedAssetUuid, setSelectedAssetUuid] = useState<string | null>(null);
+  const [selectedAssetUuid, setSelectedAssetUuid] = useState<string | null>(
+    null,
+  );
+  const [serverFxSnapshot, setServerFxSnapshot] =
+    useState<AssetFxSnapshot | null>(null);
   const [statsSettings, setStatsSettings] = useLocalStorage<AssetStatsSettings>(
     "assetStatsSettings",
     {
@@ -307,7 +301,7 @@ const AssetView: React.FC<AssetViewProps> = ({
       rates: {
         USD: "1",
       },
-    }
+    },
   );
 
   useEffect(() => {
@@ -320,13 +314,13 @@ const AssetView: React.FC<AssetViewProps> = ({
 
     window.addEventListener(
       ASSET_FILTER_FOCUS_EVENT,
-      handleRequestedFilter as EventListener
+      handleRequestedFilter as EventListener,
     );
 
     return () => {
       window.removeEventListener(
         ASSET_FILTER_FOCUS_EVENT,
-        handleRequestedFilter as EventListener
+        handleRequestedFilter as EventListener,
       );
     };
   }, []);
@@ -339,9 +333,61 @@ const AssetView: React.FC<AssetViewProps> = ({
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadFxSnapshot = async () => {
+      try {
+        const snapshot = await getAssetFxSnapshot();
+        if (cancelled) return;
+        setServerFxSnapshot(snapshot);
+        setStatsSettings((prev) => {
+          const nextRates = { ...prev.rates };
+          let changed = false;
+          Object.entries(snapshot.rates || {}).forEach(
+            ([currencyKey, rate]) => {
+              const currentValue = nextRates[currencyKey];
+              if (!currentValue) {
+                nextRates[currencyKey] = String(rate);
+                changed = true;
+              }
+            },
+          );
+          if (nextRates[prev.baseCurrency] !== "1") {
+            nextRates[prev.baseCurrency] = "1";
+            changed = true;
+          }
+          const nextRateUpdatedAt =
+            prev.rateUpdatedAt || snapshot.updated_at?.slice(0, 10) || "";
+          if (nextRateUpdatedAt !== prev.rateUpdatedAt) {
+            changed = true;
+          }
+          if (!changed) {
+            return prev;
+          }
+          return {
+            ...prev,
+            rateUpdatedAt: nextRateUpdatedAt,
+            rates: nextRates,
+          };
+        });
+      } catch {
+        if (!cancelled) {
+          setServerFxSnapshot(null);
+        }
+      }
+    };
+
+    void loadFxSnapshot();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setStatsSettings]);
+
   const onlineSet = useMemo(
     () => new Set(liveData.online || []),
-    [liveData.online]
+    [liveData.online],
   );
 
   const assetRows = useMemo<AssetRow[]>(() => {
@@ -384,9 +430,17 @@ const AssetView: React.FC<AssetViewProps> = ({
         case "due_today":
           return row.daysRemaining !== null && row.daysRemaining <= 0;
         case "due_7d":
-          return row.daysRemaining !== null && row.daysRemaining > 0 && row.daysRemaining <= 7;
+          return (
+            row.daysRemaining !== null &&
+            row.daysRemaining > 0 &&
+            row.daysRemaining <= 7
+          );
         case "due_30d":
-          return row.daysRemaining !== null && row.daysRemaining > 7 && row.daysRemaining <= 30;
+          return (
+            row.daysRemaining !== null &&
+            row.daysRemaining > 7 &&
+            row.daysRemaining <= 30
+          );
         case "manual":
           return (
             row.node.price > 0 &&
@@ -453,12 +507,12 @@ const AssetView: React.FC<AssetViewProps> = ({
 
   const includedRows = useMemo(
     () => filteredRows.filter((row) => !row.node.asset_ignored),
-    [filteredRows]
+    [filteredRows],
   );
 
   const currencySummary = useMemo(
     () => groupAssetFinancials(includedRows.map((row) => row.node)),
-    [includedRows]
+    [includedRows],
   );
 
   const baseCurrencyOptions = useMemo(() => {
@@ -476,7 +530,7 @@ const AssetView: React.FC<AssetViewProps> = ({
     }
 
     return Array.from(options.values()).sort((a, b) =>
-      a.key.localeCompare(b.key)
+      a.key.localeCompare(b.key),
     );
   }, [currencySummary, statsSettings.baseCurrency]);
 
@@ -497,9 +551,9 @@ const AssetView: React.FC<AssetViewProps> = ({
         Object.entries(statsSettings.rates).map(([key, value]) => [
           key,
           Number(value),
-        ])
+        ]),
       ),
-    [statsSettings.rates]
+    [statsSettings.rates],
   );
 
   const convertedMonthlySummary = useMemo(
@@ -508,9 +562,9 @@ const AssetView: React.FC<AssetViewProps> = ({
         currencySummary,
         "monthly",
         statsSettings.baseCurrency,
-        numericRates
+        numericRates,
       ),
-    [currencySummary, numericRates, statsSettings.baseCurrency]
+    [currencySummary, numericRates, statsSettings.baseCurrency],
   );
   const convertedAnnualizedSummary = useMemo(
     () =>
@@ -518,9 +572,9 @@ const AssetView: React.FC<AssetViewProps> = ({
         currencySummary,
         "annualized",
         statsSettings.baseCurrency,
-        numericRates
+        numericRates,
       ),
-    [currencySummary, numericRates, statsSettings.baseCurrency]
+    [currencySummary, numericRates, statsSettings.baseCurrency],
   );
   const convertedRemainingSummary = useMemo(
     () =>
@@ -528,9 +582,9 @@ const AssetView: React.FC<AssetViewProps> = ({
         currencySummary,
         "remaining",
         statsSettings.baseCurrency,
-        numericRates
+        numericRates,
       ),
-    [currencySummary, numericRates, statsSettings.baseCurrency]
+    [currencySummary, numericRates, statsSettings.baseCurrency],
   );
   const convertedRenewal7dSummary = useMemo(
     () =>
@@ -538,9 +592,9 @@ const AssetView: React.FC<AssetViewProps> = ({
         currencySummary,
         "renewal7d",
         statsSettings.baseCurrency,
-        numericRates
+        numericRates,
       ),
-    [currencySummary, numericRates, statsSettings.baseCurrency]
+    [currencySummary, numericRates, statsSettings.baseCurrency],
   );
   const convertedRenewal30dSummary = useMemo(
     () =>
@@ -548,157 +602,164 @@ const AssetView: React.FC<AssetViewProps> = ({
         currencySummary,
         "renewal30d",
         statsSettings.baseCurrency,
-        numericRates
+        numericRates,
       ),
-    [currencySummary, numericRates, statsSettings.baseCurrency]
+    [currencySummary, numericRates, statsSettings.baseCurrency],
   );
 
   const missingRateCurrencies = convertedMonthlySummary.missingCurrencies;
   const normalizedTotalsReady = missingRateCurrencies.length === 0;
 
-  const buildAggregationSummary = useCallback((
-    sourceRows: AssetRow[],
-    getName: (row: AssetRow) => string
-  ): AggregationSummaryItem[] => {
-    const grouped = new Map<
-      string,
-      {
-        name: string;
-        rows: AssetRow[];
-        riskCount: number;
-      }
-    >();
+  const buildAggregationSummary = useCallback(
+    (
+      sourceRows: AssetRow[],
+      getName: (row: AssetRow) => string,
+    ): AggregationSummaryItem[] => {
+      const grouped = new Map<
+        string,
+        {
+          name: string;
+          rows: AssetRow[];
+          riskCount: number;
+        }
+      >();
 
-    sourceRows.forEach((row) => {
-      const name = getName(row);
-      const current = grouped.get(name) ?? {
-        name,
-        rows: [],
-        riskCount: 0,
-      };
-      current.rows.push(row);
-      if (row.riskLevel === "high") current.riskCount += 1;
-      grouped.set(name, current);
-    });
+      sourceRows.forEach((row) => {
+        const name = getName(row);
+        const current = grouped.get(name) ?? {
+          name,
+          rows: [],
+          riskCount: 0,
+        };
+        current.rows.push(row);
+        if (row.riskLevel === "high") current.riskCount += 1;
+        grouped.set(name, current);
+      });
 
-    const items = Array.from(grouped.values()).map((item) => {
-      const financials = groupAssetFinancials(item.rows.map((row) => row.node));
-      const convertedMonthly = summarizeConvertedField(
-        financials,
-        "monthly",
-        statsSettings.baseCurrency,
-        numericRates
-      );
-      const convertedRemaining = summarizeConvertedField(
-        financials,
-        "remaining",
-        statsSettings.baseCurrency,
-        numericRates
-      );
-      const nativeMonthlyValue = item.rows.reduce(
-        (total, row) => total + row.monthlyCost,
-        0
-      );
-      const nativeRemainingValue = item.rows.reduce(
-        (total, row) => total + row.remainingValue,
-        0
-      );
-      const shareLabel =
-        normalizedTotalsReady &&
-        convertedMonthly.missingCurrencies.length === 0 &&
-        convertedMonthlySummary.value > 0
-          ? `${((convertedMonthly.value / convertedMonthlySummary.value) * 100).toFixed(1)}% ${t(
-              "asset.providerShareSpend",
-              {
-                defaultValue: "of normalized monthly spend",
-              }
-            )}`
-          : `${item.rows.length}/${sourceRows.length} ${t(
-              "asset.providerShareCount",
-              {
-                defaultValue: "visible assets",
-              }
-            )}`;
+      const items = Array.from(grouped.values()).map((item) => {
+        const financials = groupAssetFinancials(
+          item.rows.map((row) => row.node),
+        );
+        const convertedMonthly = summarizeConvertedField(
+          financials,
+          "monthly",
+          statsSettings.baseCurrency,
+          numericRates,
+        );
+        const convertedRemaining = summarizeConvertedField(
+          financials,
+          "remaining",
+          statsSettings.baseCurrency,
+          numericRates,
+        );
+        const nativeMonthlyValue = item.rows.reduce(
+          (total, row) => total + row.monthlyCost,
+          0,
+        );
+        const nativeRemainingValue = item.rows.reduce(
+          (total, row) => total + row.remainingValue,
+          0,
+        );
+        const shareLabel =
+          normalizedTotalsReady &&
+          convertedMonthly.missingCurrencies.length === 0 &&
+          convertedMonthlySummary.value > 0
+            ? `${((convertedMonthly.value / convertedMonthlySummary.value) * 100).toFixed(1)}% ${t(
+                "asset.providerShareSpend",
+                {
+                  defaultValue: "of normalized monthly spend",
+                },
+              )}`
+            : `${item.rows.length}/${sourceRows.length} ${t(
+                "asset.providerShareCount",
+                {
+                  defaultValue: "visible assets",
+                },
+              )}`;
 
-      return {
+        return {
+          name: item.name,
+          count: item.rows.length,
+          monthlyCost: formatCurrencySummary(financials, "monthly"),
+          remainingValue: formatCurrencySummary(financials, "remaining"),
+          riskCount: item.riskCount,
+          convertedMonthlyCost:
+            convertedMonthly.missingCurrencies.length === 0
+              ? formatCurrencyAmount(
+                  convertedMonthly.value,
+                  statsSettings.baseCurrency,
+                )
+              : null,
+          convertedRemainingValue:
+            convertedRemaining.missingCurrencies.length === 0
+              ? formatCurrencyAmount(
+                  convertedRemaining.value,
+                  statsSettings.baseCurrency,
+                )
+              : null,
+          shareLabel,
+          nativeMonthlyValue,
+          nativeRemainingValue,
+          convertedMonthlyValue:
+            convertedMonthly.missingCurrencies.length === 0
+              ? convertedMonthly.value
+              : null,
+          convertedRemainingValueNumeric:
+            convertedRemaining.missingCurrencies.length === 0
+              ? convertedRemaining.value
+              : null,
+        };
+      });
+
+      items.sort((a, b) => {
+        switch (statsSettings.providerSortMode) {
+          case "remaining":
+            return (
+              (b.convertedRemainingValueNumeric ?? b.nativeRemainingValue) -
+              (a.convertedRemainingValueNumeric ?? a.nativeRemainingValue)
+            );
+          case "risk":
+            return (
+              b.riskCount - a.riskCount ||
+              b.nativeMonthlyValue - a.nativeMonthlyValue
+            );
+          case "count":
+            return (
+              b.count - a.count || b.nativeMonthlyValue - a.nativeMonthlyValue
+            );
+          case "monthly":
+          default:
+            return (
+              (b.convertedMonthlyValue ?? b.nativeMonthlyValue) -
+              (a.convertedMonthlyValue ?? a.nativeMonthlyValue)
+            );
+        }
+      });
+
+      return items.map((item) => ({
         name: item.name,
-        count: item.rows.length,
-        monthlyCost: formatCurrencySummary(financials, "monthly"),
-        remainingValue: formatCurrencySummary(financials, "remaining"),
+        count: item.count,
+        monthlyCost: item.monthlyCost,
+        remainingValue: item.remainingValue,
+        convertedMonthlyCost: item.convertedMonthlyCost,
+        convertedRemainingValue: item.convertedRemainingValue,
         riskCount: item.riskCount,
-        convertedMonthlyCost:
-          convertedMonthly.missingCurrencies.length === 0
-            ? formatCurrencyAmount(
-                convertedMonthly.value,
-                statsSettings.baseCurrency
-              )
-            : null,
-        convertedRemainingValue:
-          convertedRemaining.missingCurrencies.length === 0
-            ? formatCurrencyAmount(
-                convertedRemaining.value,
-                statsSettings.baseCurrency
-              )
-            : null,
-        shareLabel,
-        nativeMonthlyValue,
-        nativeRemainingValue,
-        convertedMonthlyValue:
-          convertedMonthly.missingCurrencies.length === 0
-            ? convertedMonthly.value
-            : null,
-        convertedRemainingValueNumeric:
-          convertedRemaining.missingCurrencies.length === 0
-            ? convertedRemaining.value
-            : null,
-      };
-    });
-
-    items.sort((a, b) => {
-      switch (statsSettings.providerSortMode) {
-        case "remaining":
-          return (
-            (b.convertedRemainingValueNumeric ?? b.nativeRemainingValue) -
-            (a.convertedRemainingValueNumeric ?? a.nativeRemainingValue)
-          );
-        case "risk":
-          return b.riskCount - a.riskCount || b.nativeMonthlyValue - a.nativeMonthlyValue;
-        case "count":
-          return b.count - a.count || b.nativeMonthlyValue - a.nativeMonthlyValue;
-        case "monthly":
-        default:
-          return (
-            (b.convertedMonthlyValue ?? b.nativeMonthlyValue) -
-            (a.convertedMonthlyValue ?? a.nativeMonthlyValue)
-          );
-      }
-    });
-
-    return items.map((item) => ({
-      name: item.name,
-      count: item.count,
-      monthlyCost: item.monthlyCost,
-      remainingValue: item.remainingValue,
-      convertedMonthlyCost: item.convertedMonthlyCost,
-      convertedRemainingValue: item.convertedRemainingValue,
-      riskCount: item.riskCount,
-      shareLabel: item.shareLabel,
-    }));
-  }, [
-    convertedMonthlySummary.value,
-    normalizedTotalsReady,
-    numericRates,
-    statsSettings.baseCurrency,
-    statsSettings.providerSortMode,
-    t,
-  ]);
+        shareLabel: item.shareLabel,
+      }));
+    },
+    [
+      convertedMonthlySummary.value,
+      normalizedTotalsReady,
+      numericRates,
+      statsSettings.baseCurrency,
+      statsSettings.providerSortMode,
+      t,
+    ],
+  );
 
   const providerSummary = useMemo(() => {
     return buildAggregationSummary(includedRows, (row) => row.providerLabel);
-  }, [
-    includedRows,
-    buildAggregationSummary,
-  ]);
+  }, [includedRows, buildAggregationSummary]);
 
   const groupSummary = useMemo(
     () =>
@@ -706,9 +767,9 @@ const AssetView: React.FC<AssetViewProps> = ({
         includedRows,
         (row) =>
           row.node.group?.trim() ||
-          t("asset.groupUnknown", { defaultValue: "Ungrouped" })
+          t("asset.groupUnknown", { defaultValue: "Ungrouped" }),
       ),
-    [includedRows, buildAggregationSummary, t]
+    [includedRows, buildAggregationSummary, t],
   );
 
   const ignoredProviderSummary = useMemo(() => {
@@ -728,7 +789,7 @@ const AssetView: React.FC<AssetViewProps> = ({
           rows.map((row) => ({
             ...row.node,
             asset_ignored: false,
-          }))
+          })),
         );
         return {
           name,
@@ -791,7 +852,7 @@ const AssetView: React.FC<AssetViewProps> = ({
         longTerm: 0,
         manualRenew: 0,
         ignored: 0,
-      }
+      },
     );
   }, [filteredRows]);
 
@@ -802,7 +863,7 @@ const AssetView: React.FC<AssetViewProps> = ({
           [item],
           "monthly",
           statsSettings.baseCurrency,
-          numericRates
+          numericRates,
         );
         return {
           key: item.key,
@@ -815,12 +876,12 @@ const AssetView: React.FC<AssetViewProps> = ({
             convertedMonthly.missingCurrencies.length === 0
               ? formatCurrencyAmount(
                   convertedMonthly.value,
-                  statsSettings.baseCurrency
+                  statsSettings.baseCurrency,
                 )
               : null,
         };
       }),
-    [currencySummary, numericRates, statsSettings.baseCurrency]
+    [currencySummary, numericRates, statsSettings.baseCurrency],
   );
 
   const currencyAggregationSummary = useMemo<AggregationSummaryItem[]>(
@@ -831,17 +892,17 @@ const AssetView: React.FC<AssetViewProps> = ({
             [item],
             "monthly",
             statsSettings.baseCurrency,
-            numericRates
+            numericRates,
           );
           const convertedRemaining = summarizeConvertedField(
             [item],
             "remaining",
             statsSettings.baseCurrency,
-            numericRates
+            numericRates,
           );
           const riskCount = includedRows.filter(
             (row) =>
-              getCurrencyKey(row.node) === item.key && row.riskLevel === "high"
+              getCurrencyKey(row.node) === item.key && row.riskLevel === "high",
           ).length;
 
           return {
@@ -853,14 +914,14 @@ const AssetView: React.FC<AssetViewProps> = ({
               convertedMonthly.missingCurrencies.length === 0
                 ? formatCurrencyAmount(
                     convertedMonthly.value,
-                    statsSettings.baseCurrency
+                    statsSettings.baseCurrency,
                   )
                 : null,
             convertedRemainingValue:
               convertedRemaining.missingCurrencies.length === 0
                 ? formatCurrencyAmount(
                     convertedRemaining.value,
-                    statsSettings.baseCurrency
+                    statsSettings.baseCurrency,
                   )
                 : null,
             riskCount,
@@ -868,7 +929,7 @@ const AssetView: React.FC<AssetViewProps> = ({
               "asset.providerShareCount",
               {
                 defaultValue: "visible assets",
-              }
+              },
             )}`,
             nativeMonthlyValue: item.monthly,
             nativeRemainingValue: item.remaining,
@@ -890,9 +951,14 @@ const AssetView: React.FC<AssetViewProps> = ({
                 (a.convertedRemainingValueNumeric ?? a.nativeRemainingValue)
               );
             case "count":
-              return b.count - a.count || b.nativeMonthlyValue - a.nativeMonthlyValue;
+              return (
+                b.count - a.count || b.nativeMonthlyValue - a.nativeMonthlyValue
+              );
             case "risk":
-              return b.riskCount - a.riskCount || b.nativeMonthlyValue - a.nativeMonthlyValue;
+              return (
+                b.riskCount - a.riskCount ||
+                b.nativeMonthlyValue - a.nativeMonthlyValue
+              );
             case "monthly":
             default:
               return (
@@ -918,7 +984,7 @@ const AssetView: React.FC<AssetViewProps> = ({
       statsSettings.baseCurrency,
       statsSettings.providerSortMode,
       t,
-    ]
+    ],
   );
 
   const rateInputs = useMemo(
@@ -929,17 +995,20 @@ const AssetView: React.FC<AssetViewProps> = ({
         value:
           option.key === statsSettings.baseCurrency
             ? "1"
-            : statsSettings.rates[option.key] ?? "",
+            : (statsSettings.rates[option.key] ?? ""),
       })),
-    [baseCurrencyOptions, statsSettings.baseCurrency, statsSettings.rates]
+    [baseCurrencyOptions, statsSettings.baseCurrency, statsSettings.rates],
   );
 
   const queueItems = useMemo(() => {
     const renewalRows = sortedRows.filter(
-      (row) => !row.node.asset_ignored && row.daysRemaining !== null && row.daysRemaining <= 7
+      (row) =>
+        !row.node.asset_ignored &&
+        row.daysRemaining !== null &&
+        row.daysRemaining <= 7,
     );
     const metadataRows = sortedRows.filter(
-      (row) => row.metadataMissingFields.length > 0
+      (row) => row.metadataMissingFields.length > 0,
     );
     const underusedRows = sortedRows.filter((row) => row.underused);
 
@@ -952,22 +1021,22 @@ const AssetView: React.FC<AssetViewProps> = ({
 
   const renewalTimelineBuckets = useMemo(() => {
     const billableRows = sortedRows.filter(
-      (row) => row.node.price > 0 && !row.node.asset_ignored
+      (row) => row.node.price > 0 && !row.node.asset_ignored,
     );
     const todayRows = billableRows.filter(
-      (row) => row.daysRemaining !== null && row.daysRemaining <= 0
+      (row) => row.daysRemaining !== null && row.daysRemaining <= 0,
     );
     const sevenDayRows = billableRows.filter(
       (row) =>
         row.daysRemaining !== null &&
         row.daysRemaining > 0 &&
-        row.daysRemaining <= 7
+        row.daysRemaining <= 7,
     );
     const thirtyDayRows = billableRows.filter(
       (row) =>
         row.daysRemaining !== null &&
         row.daysRemaining > 7 &&
-        row.daysRemaining <= 30
+        row.daysRemaining <= 30,
     );
 
     return [
@@ -1003,7 +1072,8 @@ const AssetView: React.FC<AssetViewProps> = ({
         count: thirtyDayRows.length,
         exposure: formatRenewalExposureLabel(thirtyDayRows),
         hint: t("asset.timeline30dHint", {
-          defaultValue: "Upcoming renewal pressure after the immediate 7-day window.",
+          defaultValue:
+            "Upcoming renewal pressure after the immediate 7-day window.",
         }),
         preview: thirtyDayRows.slice(0, 3).map((row) => row.node.name),
       },
@@ -1029,51 +1099,53 @@ const AssetView: React.FC<AssetViewProps> = ({
 
   const providerOptions = useMemo(
     () =>
-      Array.from(new Set(assetRows.map((row) => row.providerLabel))).sort((a, b) =>
-        a.localeCompare(b)
+      Array.from(new Set(assetRows.map((row) => row.providerLabel))).sort(
+        (a, b) => a.localeCompare(b),
       ),
-    [assetRows]
+    [assetRows],
   );
   const currencyOptions = useMemo(
     () =>
       Array.from(
-        new Set(assetRows.map((row) => getCurrencyKey(row.node)))
+        new Set(assetRows.map((row) => getCurrencyKey(row.node))),
       ).sort((a, b) => a.localeCompare(b)),
-    [assetRows]
+    [assetRows],
   );
   const roleOptions = useMemo(
     () =>
       Array.from(new Set(assetRows.map((row) => row.roleLabel))).sort((a, b) =>
-        a.localeCompare(b)
+        a.localeCompare(b),
       ),
-    [assetRows]
+    [assetRows],
   );
 
   const highRiskCount = filteredRows.filter(
-    (row) => row.riskLevel === "high"
+    (row) => row.riskLevel === "high",
   ).length;
   const mediumRiskCount = filteredRows.filter(
-    (row) => row.riskLevel === "medium"
+    (row) => row.riskLevel === "medium",
   ).length;
   const lowRiskCount = filteredRows.filter(
-    (row) => row.riskLevel === "low"
+    (row) => row.riskLevel === "low",
   ).length;
   const renewDecisionCount = filteredRows.filter(
-    (row) => row.decision === "renew"
+    (row) => row.decision === "renew",
   ).length;
   const reclaimDecisionCount = filteredRows.filter(
-    (row) => row.decision === "reclaim"
+    (row) => row.decision === "reclaim",
   ).length;
   const observeDecisionCount = filteredRows.filter(
-    (row) => row.decision === "observe"
+    (row) => row.decision === "observe",
   ).length;
   const retainDecisionCount = filteredRows.filter(
-    (row) => row.decision === "retain"
+    (row) => row.decision === "retain",
   ).length;
   const billableCount = includedRows.filter((row) => row.node.price > 0).length;
-  const ignoredAssets = filteredRows.filter((row) => row.node.asset_ignored).length;
+  const ignoredAssets = filteredRows.filter(
+    (row) => row.node.asset_ignored,
+  ).length;
   const protectedUnderusedCount = filteredRows.filter(
-    (row) => row.underusedExcluded
+    (row) => row.underusedExcluded,
   ).length;
   const reclaimWasteSummary = filteredRows
     .filter((row) => row.underused)
@@ -1153,7 +1225,9 @@ const AssetView: React.FC<AssetViewProps> = ({
         />
         <KpiCard
           icon={<Clock3 size={16} />}
-          label={t("asset.renewal7d", { defaultValue: "7-day renewal exposure" })}
+          label={t("asset.renewal7d", {
+            defaultValue: "7-day renewal exposure",
+          })}
           value={renewal7d}
           hint={t("asset.renewal30d", {
             defaultValue: `30-day exposure ${renewal30d}`,
@@ -1187,7 +1261,9 @@ const AssetView: React.FC<AssetViewProps> = ({
             defaultValue:
               "Expiring within 7 days and usually worth reviewing first.",
           })}
-          preview={queueItems.renewalRows.slice(0, 3).map((row) => row.node.name)}
+          preview={queueItems.renewalRows
+            .slice(0, 3)
+            .map((row) => row.node.name)}
           actionLabel={t("asset.queueReview", { defaultValue: "Review" })}
           onAction={() => setFilterMode("expiring")}
         />
@@ -1200,7 +1276,9 @@ const AssetView: React.FC<AssetViewProps> = ({
             defaultValue:
               "Provider, role, currency code, or expiry date is still missing.",
           })}
-          preview={queueItems.metadataRows.slice(0, 3).map((row) => row.node.name)}
+          preview={queueItems.metadataRows
+            .slice(0, 3)
+            .map((row) => row.node.name)}
           actionLabel={t("asset.queueReview", { defaultValue: "Review" })}
           onAction={() => setFilterMode("metadata")}
         />
@@ -1213,7 +1291,9 @@ const AssetView: React.FC<AssetViewProps> = ({
             defaultValue:
               "Low-utilization assets with ongoing spend. Protected nodes stay in Observe instead of Reclaim.",
           })}
-          preview={queueItems.underusedRows.slice(0, 3).map((row) => row.node.name)}
+          preview={queueItems.underusedRows
+            .slice(0, 3)
+            .map((row) => row.node.name)}
           actionLabel={t("asset.queueReview", { defaultValue: "Review" })}
           onAction={() => setFilterMode("underused")}
         />
@@ -1325,7 +1405,8 @@ const AssetView: React.FC<AssetViewProps> = ({
           {aggregationSummary.length === 0 ? (
             <Text size="2" color="gray">
               {t("asset.aggregationEmpty", {
-                defaultValue: "No aggregation data is available for the current filter scope.",
+                defaultValue:
+                  "No aggregation data is available for the current filter scope.",
               })}
             </Text>
           ) : (
@@ -1343,8 +1424,8 @@ const AssetView: React.FC<AssetViewProps> = ({
                         </Text>
                         <Text size="1" color="gray">
                           {item.count}{" "}
-                          {t("asset.assetsSuffix", { defaultValue: "assets" })} ·{" "}
-                          {item.shareLabel}
+                          {t("asset.assetsSuffix", { defaultValue: "assets" })}{" "}
+                          · {item.shareLabel}
                         </Text>
                       </div>
                       {item.riskCount > 0 ? (
@@ -1437,7 +1518,9 @@ const AssetView: React.FC<AssetViewProps> = ({
 
           <Flex direction="column" gap="2">
             <Text size="1" color="gray">
-              {t("asset.decisionLanes", { defaultValue: "Recommended actions" })}
+              {t("asset.decisionLanes", {
+                defaultValue: "Recommended actions",
+              })}
             </Text>
             <Flex gap="2" wrap="wrap">
               <FilterChip
@@ -1494,14 +1577,20 @@ const AssetView: React.FC<AssetViewProps> = ({
               })}
             </Text>
           </Flex>
-          <Flex direction={{ initial: "column", sm: "row" }} gap="3" wrap="wrap">
+          <Flex
+            direction={{ initial: "column", sm: "row" }}
+            gap="3"
+            wrap="wrap"
+          >
             <Flex direction="column" gap="1">
               <Text size="1" color="gray">
                 {t("asset.sortBy", { defaultValue: "Sort by" })}
               </Text>
               <select
                 value={sortMode}
-                onChange={(event) => setSortMode(event.target.value as SortMode)}
+                onChange={(event) =>
+                  setSortMode(event.target.value as SortMode)
+                }
                 className="h-9 min-w-[170px] rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
               >
                 <option value="risk">
@@ -1535,7 +1624,9 @@ const AssetView: React.FC<AssetViewProps> = ({
               </Text>
               <select
                 value={filterMode}
-                onChange={(event) => setFilterMode(event.target.value as FilterMode)}
+                onChange={(event) =>
+                  setFilterMode(event.target.value as FilterMode)
+                }
                 className="h-9 min-w-[170px] rounded-md border border-[var(--accent-5)] bg-[var(--accent-1)] px-3 text-sm outline-none transition focus:border-[var(--accent-8)]"
               >
                 <option value="all">
@@ -1708,7 +1799,7 @@ const AssetView: React.FC<AssetViewProps> = ({
                     <Badge color="iris" variant="soft">
                       {formatCurrencyAmount(
                         row.monthlyCost,
-                        row.node.currency || row.node.currency_code || "?"
+                        row.node.currency || row.node.currency_code || "?",
                       )}
                       /mo
                     </Badge>
@@ -1721,7 +1812,8 @@ const AssetView: React.FC<AssetViewProps> = ({
                       color={getAssetRiskTone(row.riskLevel)}
                       variant="soft"
                     >
-                      {t("asset.risk", { defaultValue: "Risk" })} {row.riskScore}
+                      {t("asset.risk", { defaultValue: "Risk" })}{" "}
+                      {row.riskScore}
                     </Badge>
                     <Badge
                       color={getAssetDecisionTone(row.decision)}
@@ -1735,7 +1827,9 @@ const AssetView: React.FC<AssetViewProps> = ({
                     </Badge>
                     {!row.node.auto_renewal && row.node.price > 0 && (
                       <Badge color="amber" variant="soft">
-                        {t("asset.manualRenew", { defaultValue: "Manual renew" })}
+                        {t("asset.manualRenew", {
+                          defaultValue: "Manual renew",
+                        })}
                       </Badge>
                     )}
                     {row.node.asset_ignored && (
@@ -1748,12 +1842,14 @@ const AssetView: React.FC<AssetViewProps> = ({
                   <div className="grid grid-cols-2 gap-2">
                     <Card className="bg-[var(--accent-2)]">
                       <Text size="1" color="gray">
-                        {t("asset.remainingValue", { defaultValue: "Remaining" })}
+                        {t("asset.remainingValue", {
+                          defaultValue: "Remaining",
+                        })}
                       </Text>
                       <Text size="2" weight="bold">
                         {formatCurrencyAmount(
                           row.remainingValue,
-                          row.node.currency || row.node.currency_code || "?"
+                          row.node.currency || row.node.currency_code || "?",
                         )}
                       </Text>
                     </Card>
@@ -1780,7 +1876,9 @@ const AssetView: React.FC<AssetViewProps> = ({
                         {row.wasteEstimateMonthly > 0
                           ? formatCurrencyAmount(
                               row.wasteEstimateMonthly,
-                              row.node.currency || row.node.currency_code || "?"
+                              row.node.currency ||
+                                row.node.currency_code ||
+                                "?",
                             )
                           : "-"}
                       </Text>
@@ -1825,12 +1923,17 @@ const AssetView: React.FC<AssetViewProps> = ({
                     {row.riskReasons.length === 0 ? (
                       <Text size="1" color="gray">
                         {t("asset.noRisk", {
-                          defaultValue: "No active risk indicators in the current ruleset.",
+                          defaultValue:
+                            "No active risk indicators in the current ruleset.",
                         })}
                       </Text>
                     ) : (
                       row.riskReasons.slice(0, 3).map((reason) => (
-                        <Text key={`${row.node.uuid}-${reason}`} size="1" color="gray">
+                        <Text
+                          key={`${row.node.uuid}-${reason}`}
+                          size="1"
+                          color="gray"
+                        >
                           • {reason}
                         </Text>
                       ))
@@ -1846,14 +1949,30 @@ const AssetView: React.FC<AssetViewProps> = ({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("common.server", { defaultValue: "Server" })}</TableHead>
-                <TableHead>{t("common.group", { defaultValue: "Group" })}</TableHead>
-                <TableHead>{t("asset.role", { defaultValue: "Role" })}</TableHead>
-                <TableHead>{t("asset.monthly", { defaultValue: "Monthly" })}</TableHead>
-                <TableHead>{t("asset.remainingValue", { defaultValue: "Remaining" })}</TableHead>
-                <TableHead>{t("asset.expiry", { defaultValue: "Expiry" })}</TableHead>
-                <TableHead>{t("asset.utilization", { defaultValue: "Utilization" })}</TableHead>
-                <TableHead>{t("asset.riskDecision", { defaultValue: "Risk / Decision" })}</TableHead>
+                <TableHead>
+                  {t("common.server", { defaultValue: "Server" })}
+                </TableHead>
+                <TableHead>
+                  {t("common.group", { defaultValue: "Group" })}
+                </TableHead>
+                <TableHead>
+                  {t("asset.role", { defaultValue: "Role" })}
+                </TableHead>
+                <TableHead>
+                  {t("asset.monthly", { defaultValue: "Monthly" })}
+                </TableHead>
+                <TableHead>
+                  {t("asset.remainingValue", { defaultValue: "Remaining" })}
+                </TableHead>
+                <TableHead>
+                  {t("asset.expiry", { defaultValue: "Expiry" })}
+                </TableHead>
+                <TableHead>
+                  {t("asset.utilization", { defaultValue: "Utilization" })}
+                </TableHead>
+                <TableHead>
+                  {t("asset.riskDecision", { defaultValue: "Risk / Decision" })}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1879,7 +1998,9 @@ const AssetView: React.FC<AssetViewProps> = ({
                           >
                             {row.online
                               ? t("nodeCard.online", { defaultValue: "Online" })
-                              : t("nodeCard.offline", { defaultValue: "Offline" })}
+                              : t("nodeCard.offline", {
+                                  defaultValue: "Offline",
+                                })}
                           </Badge>
                           {!row.node.auto_renewal && row.node.price > 0 && (
                             <Badge color="amber" variant="soft">
@@ -1922,7 +2043,8 @@ const AssetView: React.FC<AssetViewProps> = ({
                     <TableCell>
                       <Flex direction="column" gap="1">
                         <Text size="2">
-                          CPU {row.cpuUsage.toFixed(0)}% · RAM {row.memoryUsage.toFixed(0)}%
+                          CPU {row.cpuUsage.toFixed(0)}% · RAM{" "}
+                          {row.memoryUsage.toFixed(0)}%
                         </Text>
                         <Text size="1" color="gray">
                           {row.trafficPercentage > 0
@@ -1938,7 +2060,8 @@ const AssetView: React.FC<AssetViewProps> = ({
                             color={getAssetRiskTone(row.riskLevel)}
                             variant="soft"
                           >
-                            {t("asset.risk", { defaultValue: "Risk" })} {row.riskScore}
+                            {t("asset.risk", { defaultValue: "Risk" })}{" "}
+                            {row.riskScore}
                           </Badge>
                           <Badge
                             color={getAssetDecisionTone(row.decision)}
@@ -1993,7 +2116,9 @@ const AssetView: React.FC<AssetViewProps> = ({
                           <Text size="1" color="gray">
                             {row.metadataMissingFields
                               .slice(0, 2)
-                              .map((field) => humanizeAssetMetadataField(field, t))
+                              .map((field) =>
+                                humanizeAssetMetadataField(field, t),
+                              )
                               .join(", ")}
                           </Text>
                         )}
@@ -2006,7 +2131,7 @@ const AssetView: React.FC<AssetViewProps> = ({
                               :{" "}
                               {formatCurrencyAmount(
                                 row.wasteEstimateMonthly,
-                                currencyLabel
+                                currencyLabel,
                               )}
                             </Text>
                           )}
@@ -2039,7 +2164,7 @@ const AssetView: React.FC<AssetViewProps> = ({
           normalizedTotalsReady
             ? formatCurrencyAmount(
                 convertedMonthlySummary.value,
-                statsSettings.baseCurrency
+                statsSettings.baseCurrency,
               )
             : null
         }
@@ -2047,7 +2172,7 @@ const AssetView: React.FC<AssetViewProps> = ({
           normalizedTotalsReady
             ? formatCurrencyAmount(
                 convertedAnnualizedSummary.value,
-                statsSettings.baseCurrency
+                statsSettings.baseCurrency,
               )
             : null
         }
@@ -2055,7 +2180,7 @@ const AssetView: React.FC<AssetViewProps> = ({
           normalizedTotalsReady
             ? formatCurrencyAmount(
                 convertedRemainingSummary.value,
-                statsSettings.baseCurrency
+                statsSettings.baseCurrency,
               )
             : null
         }
@@ -2063,7 +2188,7 @@ const AssetView: React.FC<AssetViewProps> = ({
           normalizedTotalsReady
             ? formatCurrencyAmount(
                 convertedRenewal7dSummary.value,
-                statsSettings.baseCurrency
+                statsSettings.baseCurrency,
               )
             : null
         }
@@ -2071,7 +2196,7 @@ const AssetView: React.FC<AssetViewProps> = ({
           normalizedTotalsReady
             ? formatCurrencyAmount(
                 convertedRenewal30dSummary.value,
-                statsSettings.baseCurrency
+                statsSettings.baseCurrency,
               )
             : null
         }
@@ -2100,6 +2225,12 @@ const AssetView: React.FC<AssetViewProps> = ({
           }))
         }
         rateUpdatedAt={statsSettings.rateUpdatedAt}
+        rateSource={
+          serverFxSnapshot
+            ? `${serverFxSnapshot.source}${serverFxSnapshot.stale ? " (stale)" : ""}`
+            : undefined
+        }
+        rateWarning={serverFxSnapshot?.error}
         onRateUpdatedAtChange={(value) =>
           setStatsSettings((prev) => ({
             ...prev,
@@ -2135,9 +2266,7 @@ const AssetView: React.FC<AssetViewProps> = ({
         valueScore={selectedRow?.valueScore ?? 0}
         valueBreakdown={selectedRow?.valueBreakdown ?? []}
         decisionLabel={selectedRow?.decisionLabel ?? ""}
-        decisionTone={
-          getAssetDecisionTone(selectedRow?.decision ?? "retain")
-        }
+        decisionTone={getAssetDecisionTone(selectedRow?.decision ?? "retain")}
         decisionReason={selectedRow?.decisionReason ?? ""}
         decisionSummary={selectedRow?.decisionSummary ?? []}
         monthlyCost={selectedRow?.monthlyCost ?? 0}

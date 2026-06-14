@@ -33,9 +33,7 @@ import {
   getAssetIssues,
   getAssetSummary,
 } from "@/lib/assetAdminApi";
-import {
-  getBillingCycleLabel,
-} from "@/utils/assetMetrics";
+import { getBillingCycleLabel } from "@/utils/assetMetrics";
 import {
   AlertTriangle,
   ArrowRight,
@@ -69,6 +67,8 @@ type BatchEditForm = {
   currencyCode: string;
   ignoredState: "keep" | "yes" | "no";
   autoRenewal: "keep" | "yes" | "no";
+  governanceStatus: "keep" | "none" | "observe" | "ignored" | "resolved";
+  governanceNote: string;
 };
 
 const DEFAULT_FILTERS: ManageFilterState = {
@@ -88,6 +88,8 @@ const DEFAULT_BATCH_EDIT: BatchEditForm = {
   currencyCode: "",
   ignoredState: "keep",
   autoRenewal: "keep",
+  governanceStatus: "keep",
+  governanceNote: "",
 };
 
 const ISSUE_REASON_LABELS: Record<string, string> = {
@@ -102,6 +104,14 @@ const ISSUE_REASON_LABELS: Record<string, string> = {
   no_remediation_path: "No terminal or exec path",
   capability_auto_update_disabled: "Auto update disabled",
   underused_spend: "Paid but underused",
+  observation_missing: "No recent observation",
+  observation_stale: "Observation stale",
+  observation_partial: "Observation partial",
+  token_expiring: "Token expiring",
+  token_expired: "Token expired",
+  token_revoked: "Token revoked",
+  version_drift: "Agent version drift",
+  recent_task_failure: "Recent task failure",
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -111,6 +121,7 @@ const FIELD_LABELS: Record<string, string> = {
   business_role: "Business role",
   billing_cycle: "Billing cycle",
   expired_at: "Expiry date",
+  governance_status: "Governance status",
 };
 
 const lifecycleOrder: Array<{
@@ -156,7 +167,7 @@ function formatBilling(item: AssetInventoryItem): string {
         "nodeCard.time_day": "days",
       };
       return labels[key] || key;
-    }) as never
+    }) as never,
   )}`;
 }
 
@@ -173,6 +184,45 @@ function formatDaysRemaining(days?: number): string {
   return `${days}d`;
 }
 
+function formatObservationQuality(value: string): string {
+  switch (value) {
+    case "partial":
+      return "Partial";
+    case "stale":
+      return "Stale";
+    case "missing":
+      return "Missing";
+    default:
+      return "Fresh";
+  }
+}
+
+function formatTokenStatus(value: string): string {
+  switch (value) {
+    case "expiring":
+      return "Expiring";
+    case "expired":
+      return "Expired";
+    case "revoked":
+      return "Revoked";
+    default:
+      return "Active";
+  }
+}
+
+function formatGovernanceStatus(value: string): string {
+  switch (value) {
+    case "observe":
+      return "Observe";
+    case "ignored":
+      return "Ignored";
+    case "resolved":
+      return "Resolved";
+    default:
+      return "None";
+  }
+}
+
 function formatPortfolioCurrencySummary(
   groups: AssetPortfolioSummary["currencies"],
   field:
@@ -180,7 +230,7 @@ function formatPortfolioCurrencySummary(
     | "annualized_cost"
     | "remaining_value"
     | "renewal_7d_exposure"
-    | "renewal_30d_exposure"
+    | "renewal_30d_exposure",
 ): string {
   if (!groups.length) {
     return "0";
@@ -212,6 +262,12 @@ function buildBatchChanges(form: BatchEditForm): AssetBatchEditChanges {
   if (form.autoRenewal !== "keep") {
     changes.auto_renewal = form.autoRenewal === "yes";
   }
+  if (form.governanceStatus !== "keep") {
+    changes.governance_status = form.governanceStatus;
+  }
+  if (form.governanceNote.trim()) {
+    changes.governance_note = form.governanceNote.trim();
+  }
 
   return changes;
 }
@@ -231,7 +287,7 @@ function SectionCard({
     <section
       className={cn(
         "rounded-3xl border border-white/60 bg-white/75 p-5 shadow-[0_18px_50px_rgba(35,57,93,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-black/20",
-        className
+        className,
       )}
     >
       <div className="mb-4">
@@ -254,11 +310,13 @@ function ManageWorkbench() {
   const { publicInfo } = usePublicInfo();
   const [filters, setFilters] = useLocalStorage<ManageFilterState>(
     "assetWorkbenchFilters",
-    DEFAULT_FILTERS
+    DEFAULT_FILTERS,
   );
   const [summary, setSummary] = useState<AssetPortfolioSummary | null>(null);
   const [issues, setIssues] = useState<AssetIssuesResponse | null>(null);
-  const [inventory, setInventory] = useState<AssetInventoryResponse | null>(null);
+  const [inventory, setInventory] = useState<AssetInventoryResponse | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -358,6 +416,11 @@ function ManageWorkbench() {
         item.group,
         item.currency,
         item.currency_label,
+        item.version,
+        item.token_status,
+        item.observation_quality,
+        item.governance_status,
+        item.governance_note || "",
         ...item.risk_reasons,
         ...(item.metadata_missing_fields || []),
       ]
@@ -385,6 +448,19 @@ function ManageWorkbench() {
 
   const topProvider = summary?.providers[0];
   const hasBatchChanges = Object.keys(buildBatchChanges(batchForm)).length > 0;
+  const governance = summary?.governance;
+  const tokenAttentionCount =
+    (governance?.token_expiring_assets ?? 0) +
+    (governance?.token_expired_assets ?? 0) +
+    (governance?.token_revoked_assets ?? 0);
+  const telemetryAttentionCount =
+    (governance?.observation_partial_assets ?? 0) +
+    (governance?.observation_stale_assets ?? 0) +
+    (governance?.observation_missing_assets ?? 0);
+  const notificationGapCount = Math.max(
+    governance?.offline_notification_missing_assets ?? 0,
+    governance?.load_notification_missing_assets ?? 0,
+  );
 
   const focusFilter = (filter: AssetInventoryFilterMode) => {
     setFilters((current) => ({ ...current, filter }));
@@ -408,14 +484,16 @@ function ManageWorkbench() {
     setIsSubmittingBatch(true);
     try {
       const result = await batchEditAssets(selectedIds, changes);
-      toast.success(`Updated ${result.updated} asset${result.updated === 1 ? "" : "s"}.`);
+      toast.success(
+        `Updated ${result.updated} asset${result.updated === 1 ? "" : "s"}.`,
+      );
       setBatchForm(DEFAULT_BATCH_EDIT);
       await loadWorkbench();
     } catch (submitError) {
       toast.error(
         submitError instanceof Error
           ? submitError.message
-          : "Batch edit failed."
+          : "Batch edit failed.",
       );
     } finally {
       setIsSubmittingBatch(false);
@@ -457,7 +535,9 @@ function ManageWorkbench() {
               <div className="rounded-2xl border border-dashed border-[var(--accent-6)] bg-[var(--accent-2)]/70 p-5">
                 <div className="mb-3 flex items-center gap-2 text-[var(--accent-12)]">
                   <ShieldAlert className="h-4 w-4" />
-                  <span className="font-medium">Administrator login required</span>
+                  <span className="font-medium">
+                    Administrator login required
+                  </span>
                 </div>
                 <p className="mb-4 text-sm text-[var(--accent-11)]">
                   Log in with the same administrator session you use for Komari.
@@ -465,7 +545,10 @@ function ManageWorkbench() {
                   admin asset APIs directly.
                 </p>
                 <div className="flex flex-wrap gap-3">
-                  <LoginDialog showSettings={false} onLoginSuccess={() => window.location.reload()} />
+                  <LoginDialog
+                    showSettings={false}
+                    onLoginSuccess={() => window.location.reload()}
+                  />
                   <a href="/admin">
                     <Button variant="outline">
                       Open legacy admin
@@ -478,7 +561,10 @@ function ManageWorkbench() {
           </SectionCard>
         ) : (
           <>
-            <SectionCard title="Asset Workbench" eyebrow={publicInfo?.sitename || "Komari"}>
+            <SectionCard
+              title="Asset Workbench"
+              eyebrow={publicInfo?.sitename || "Komari"}
+            >
               <div className="grid gap-6 lg:grid-cols-[1.45fr_0.95fr]">
                 <div className="space-y-5">
                   <div className="flex flex-wrap items-center gap-3">
@@ -492,10 +578,15 @@ function ManageWorkbench() {
                     <span className="rounded-full bg-[var(--accent-3)] px-3 py-1 text-xs text-[var(--accent-11)]">
                       {issues?.counts.high_risk ?? 0} high-risk right now
                     </span>
+                    <span className="rounded-full bg-[var(--accent-3)] px-3 py-1 text-xs text-[var(--accent-11)]">
+                      {governance?.governance_managed_assets ?? 0} governance
+                      tracked
+                    </span>
                   </div>
                   <div className="space-y-3">
                     <h1 className="max-w-3xl text-3xl font-semibold leading-tight text-[var(--accent-12)] md:text-[2.5rem]">
-                      Run renewals, portfolio hygiene, and low-efficiency cleanup from one desk.
+                      Run renewals, portfolio hygiene, and low-efficiency
+                      cleanup from one desk.
                     </h1>
                     <p className="max-w-3xl text-sm leading-7 text-[var(--accent-11)]">
                       This page stitches together the agent-reported capability
@@ -504,7 +595,10 @@ function ManageWorkbench() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-3">
-                    <Button onClick={() => void loadWorkbench()} disabled={loading}>
+                    <Button
+                      onClick={() => void loadWorkbench()}
+                      disabled={loading}
+                    >
                       <RefreshCw
                         className={cn("h-4 w-4", loading ? "animate-spin" : "")}
                       />
@@ -533,7 +627,7 @@ function ManageWorkbench() {
                       summary
                         ? formatPortfolioCurrencySummary(
                             summary.currencies,
-                            "monthly_cost"
+                            "monthly_cost",
                           )
                         : "..."
                     }
@@ -545,7 +639,7 @@ function ManageWorkbench() {
                       summary
                         ? formatPortfolioCurrencySummary(
                             summary.currencies,
-                            "remaining_value"
+                            "remaining_value",
                           )
                         : "..."
                     }
@@ -583,7 +677,7 @@ function ManageWorkbench() {
                         title="Recurring mix"
                         value={formatPortfolioCurrencySummary(
                           summary.currencies,
-                          "annualized_cost"
+                          "annualized_cost",
                         )}
                         subtitle="Annualized by currency"
                       />
@@ -591,7 +685,7 @@ function ManageWorkbench() {
                         title="Renewal exposure"
                         value={formatPortfolioCurrencySummary(
                           summary.currencies,
-                          "renewal_30d_exposure"
+                          "renewal_30d_exposure",
                         )}
                         subtitle="30-day cash pressure"
                       />
@@ -628,7 +722,10 @@ function ManageWorkbench() {
                                 </div>
                                 <div className="h-2 rounded-full bg-[var(--accent-4)]">
                                   <div
-                                    className={cn("h-2 rounded-full", item.tone)}
+                                    className={cn(
+                                      "h-2 rounded-full",
+                                      item.tone,
+                                    )}
                                     style={{ width }}
                                   />
                                 </div>
@@ -686,18 +783,28 @@ function ManageWorkbench() {
                     </div>
                   </div>
                 ) : (
-                  <EmptyState text={loading ? "Loading summary..." : "Summary unavailable."} />
+                  <EmptyState
+                    text={
+                      loading ? "Loading summary..." : "Summary unavailable."
+                    }
+                  />
                 )}
               </SectionCard>
 
-              <SectionCard title="Filters & Batch Edit" eyebrow="Operator Controls">
+              <SectionCard
+                title="Filters & Batch Edit"
+                eyebrow="Operator Controls"
+              >
                 <div className="space-y-5">
                   <div className="grid gap-3 md:grid-cols-2">
                     <FilterField
                       label="Provider"
                       value={filters.provider}
                       onChange={(value) =>
-                        setFilters((current) => ({ ...current, provider: value }))
+                        setFilters((current) => ({
+                          ...current,
+                          provider: value,
+                        }))
                       }
                       options={providerOptions}
                     />
@@ -705,7 +812,10 @@ function ManageWorkbench() {
                       label="Currency"
                       value={filters.currency}
                       onChange={(value) =>
-                        setFilters((current) => ({ ...current, currency: value }))
+                        setFilters((current) => ({
+                          ...current,
+                          currency: value,
+                        }))
                       }
                       options={currencyOptions}
                     />
@@ -734,6 +844,11 @@ function ManageWorkbench() {
                         "ignored",
                         "metadata",
                         "underused",
+                        "capability",
+                        "stale",
+                        "version",
+                        "token",
+                        "observe",
                       ]}
                     />
                     <FilterField
@@ -749,6 +864,7 @@ function ManageWorkbench() {
                         "risk",
                         "monthly",
                         "remaining",
+                        "value",
                         "expiry",
                         "efficiency",
                         "name",
@@ -796,7 +912,10 @@ function ManageWorkbench() {
                         value={batchForm.provider}
                         placeholder="CloudSilk"
                         onChange={(value) =>
-                          setBatchForm((current) => ({ ...current, provider: value }))
+                          setBatchForm((current) => ({
+                            ...current,
+                            provider: value,
+                          }))
                         }
                       />
                       <LabeledInput
@@ -804,7 +923,10 @@ function ManageWorkbench() {
                         value={batchForm.role}
                         placeholder="Ingress / Backup / Lab"
                         onChange={(value) =>
-                          setBatchForm((current) => ({ ...current, role: value }))
+                          setBatchForm((current) => ({
+                            ...current,
+                            role: value,
+                          }))
                         }
                       />
                       <LabeledInput
@@ -835,7 +957,8 @@ function ManageWorkbench() {
                         onChange={(value) =>
                           setBatchForm((current) => ({
                             ...current,
-                            ignoredState: value as BatchEditForm["ignoredState"],
+                            ignoredState:
+                              value as BatchEditForm["ignoredState"],
                           }))
                         }
                         options={["keep", "yes", "no"]}
@@ -851,15 +974,48 @@ function ManageWorkbench() {
                         }
                         options={["keep", "yes", "no"]}
                       />
+                      <FilterField
+                        label="Governance status"
+                        value={batchForm.governanceStatus}
+                        onChange={(value) =>
+                          setBatchForm((current) => ({
+                            ...current,
+                            governanceStatus:
+                              value as BatchEditForm["governanceStatus"],
+                          }))
+                        }
+                        options={[
+                          "keep",
+                          "none",
+                          "observe",
+                          "ignored",
+                          "resolved",
+                        ]}
+                      />
+                      <LabeledInput
+                        label="Governance note"
+                        value={batchForm.governanceNote}
+                        placeholder="Renew after migration / keep until Q3"
+                        onChange={(value) =>
+                          setBatchForm((current) => ({
+                            ...current,
+                            governanceNote: value,
+                          }))
+                        }
+                      />
                     </div>
                     <div className="mt-4 flex flex-wrap gap-3">
                       <Button
                         onClick={() => void handleBatchApply()}
                         disabled={
-                          isSubmittingBatch || !selectedIds.length || !hasBatchChanges
+                          isSubmittingBatch ||
+                          !selectedIds.length ||
+                          !hasBatchChanges
                         }
                       >
-                        {isSubmittingBatch ? "Applying..." : "Apply batch changes"}
+                        {isSubmittingBatch
+                          ? "Applying..."
+                          : "Apply batch changes"}
                       </Button>
                       <Button
                         variant="outline"
@@ -919,7 +1075,136 @@ function ManageWorkbench() {
                   />
                 </div>
               ) : (
-                <EmptyState text={loading ? "Loading issue queues..." : "Issue queue unavailable."} />
+                <EmptyState
+                  text={
+                    loading
+                      ? "Loading issue queues..."
+                      : "Issue queue unavailable."
+                  }
+                />
+              )}
+            </SectionCard>
+
+            <SectionCard title="Ops Assurance" eyebrow="Governance">
+              {governance ? (
+                <div className="space-y-5">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <MetricCard
+                      title="Token attention"
+                      value={String(tokenAttentionCount)}
+                      subtitle={`${governance.token_expiring_assets} expiring · ${governance.token_expired_assets} expired · ${governance.token_revoked_assets} revoked`}
+                    />
+                    <MetricCard
+                      title="Telemetry gaps"
+                      value={String(telemetryAttentionCount)}
+                      subtitle={`${governance.observation_partial_assets} partial · ${governance.observation_stale_assets} stale · ${governance.observation_missing_assets} missing`}
+                    />
+                    <MetricCard
+                      title="Notification gaps"
+                      value={String(notificationGapCount)}
+                      subtitle={`${governance.offline_notification_missing_assets} offline gaps · ${governance.load_notification_missing_assets} load gaps`}
+                    />
+                    <MetricCard
+                      title="Version / task drift"
+                      value={String(governance.version_drift_assets)}
+                      subtitle={`${governance.recent_task_failure_assets} recent task failures`}
+                    />
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                    <div className="rounded-2xl border border-[var(--accent-4)] bg-[var(--accent-2)]/75 p-4 text-sm text-[var(--accent-11)]">
+                      <div className="mb-2 text-sm font-medium text-[var(--accent-12)]">
+                        Governance posture
+                      </div>
+                      <div className="space-y-2">
+                        <div>
+                          Reference agent version:{" "}
+                          <span className="font-medium text-[var(--accent-12)]">
+                            {governance.target_agent_version || "Unknown"}
+                          </span>
+                        </div>
+                        <div>
+                          Server version:{" "}
+                          <span className="font-medium text-[var(--accent-12)]">
+                            {governance.server_version || "Unknown"}
+                          </span>
+                        </div>
+                        <div>
+                          Notification channel:{" "}
+                          <span className="font-medium text-[var(--accent-12)]">
+                            {governance.notification_channel_enabled
+                              ? "Enabled"
+                              : "Disabled"}
+                          </span>
+                        </div>
+                        <div>
+                          Expiry notification:{" "}
+                          <span className="font-medium text-[var(--accent-12)]">
+                            {governance.expire_notification_enabled
+                              ? "Enabled"
+                              : "Disabled"}
+                          </span>
+                        </div>
+                        <div>
+                          Governance states:{" "}
+                          <span className="font-medium text-[var(--accent-12)]">
+                            {governance.governance_managed_assets} tracked
+                          </span>
+                          {" · "}
+                          {governance.governance_observe_assets} observe
+                          {" · "}
+                          {governance.governance_ignored_assets} ignored
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[var(--accent-4)] bg-[var(--accent-2)]/75 p-4">
+                      <div className="mb-3 text-sm font-medium text-[var(--accent-12)]">
+                        Jump to governance filters
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => focusFilter("token")}
+                        >
+                          Token attention
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => focusFilter("stale")}
+                        >
+                          Telemetry gaps
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => focusFilter("version")}
+                        >
+                          Version drift
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => focusFilter("capability")}
+                        >
+                          Capability gaps
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => focusFilter("observe")}
+                        >
+                          Governance watch
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  text={
+                    loading
+                      ? "Loading governance summary..."
+                      : "Governance summary unavailable."
+                  }
+                />
               )}
             </SectionCard>
 
@@ -934,12 +1219,8 @@ function ManageWorkbench() {
                     <span>
                       {inventory?.total ?? 0} assets after API filtering
                     </span>
-                    <span>
-                      {filteredItems.length} visible after search
-                    </span>
-                    <span>
-                      {selectedItems.length} selected
-                    </span>
+                    <span>{filteredItems.length} visible after search</span>
+                    <span>{selectedItems.length} selected</span>
                   </div>
                   <div className="flex w-full max-w-xl items-center gap-2 rounded-2xl border border-[var(--accent-4)] bg-[var(--accent-2)]/70 px-3 py-2">
                     <Search className="h-4 w-4 text-[var(--accent-10)]" />
@@ -978,15 +1259,17 @@ function ManageWorkbench() {
                                     new Set([
                                       ...current,
                                       ...filteredItems.map((item) => item.uuid),
-                                    ])
-                                  )
+                                    ]),
+                                  ),
                                 );
                               } else {
                                 const visibleIds = new Set(
-                                  filteredItems.map((item) => item.uuid)
+                                  filteredItems.map((item) => item.uuid),
                                 );
                                 setSelectedIds((current) =>
-                                  current.filter((uuid) => !visibleIds.has(uuid))
+                                  current.filter(
+                                    (uuid) => !visibleIds.has(uuid),
+                                  ),
                                 );
                               }
                             }}
@@ -998,6 +1281,7 @@ function ManageWorkbench() {
                         <TableHead>Spend</TableHead>
                         <TableHead>Utilization</TableHead>
                         <TableHead>Risk</TableHead>
+                        <TableHead>Governance</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1014,9 +1298,13 @@ function ManageWorkbench() {
                                 onCheckedChange={(checked) => {
                                   setSelectedIds((current) => {
                                     if (checked === true) {
-                                      return Array.from(new Set([...current, item.uuid]));
+                                      return Array.from(
+                                        new Set([...current, item.uuid]),
+                                      );
                                     }
-                                    return current.filter((uuid) => uuid !== item.uuid);
+                                    return current.filter(
+                                      (uuid) => uuid !== item.uuid,
+                                    );
                                   });
                                 }}
                               />
@@ -1043,7 +1331,8 @@ function ManageWorkbench() {
                                   ) : null}
                                 </div>
                                 <div className="text-xs text-[var(--accent-11)]">
-                                  {item.provider} · {item.role} · {item.group || "No group"}
+                                  {item.provider} · {item.role} ·{" "}
+                                  {item.group || "No group"}
                                 </div>
                                 <div className="text-xs text-[var(--accent-10)]">
                                   {item.uuid}
@@ -1053,7 +1342,9 @@ function ManageWorkbench() {
                             <TableCell className="min-w-[180px]">
                               <div className="space-y-1.5 text-xs text-[var(--accent-11)]">
                                 <div>{formatBilling(item)}</div>
-                                <div>{formatDaysRemaining(item.days_remaining)}</div>
+                                <div>
+                                  {formatDaysRemaining(item.days_remaining)}
+                                </div>
                                 <div>
                                   Remaining: {item.currency_label}
                                   {item.remaining_value.toFixed(2)}
@@ -1062,28 +1353,34 @@ function ManageWorkbench() {
                             </TableCell>
                             <TableCell className="min-w-[200px]">
                               <div className="flex flex-wrap gap-1.5">
-                                <CapabilityBadge enabled={true} label={item.currency} />
+                                <CapabilityBadge
+                                  enabled={true}
+                                  label={item.currency}
+                                />
                                 <CapabilityBadge
                                   enabled={item.auto_renewal}
                                   label="Auto renew"
                                 />
                                 <CapabilityBadge
-                                  enabled={item.risk_reasons.includes(
-                                    "capability_ping_disabled"
-                                  ) === false}
+                                  enabled={
+                                    item.risk_reasons.includes(
+                                      "capability_ping_disabled",
+                                    ) === false
+                                  }
                                   label="Ping"
                                 />
                                 <CapabilityBadge
                                   enabled={
-                                    item.risk_reasons.includes("no_remediation_path") ===
-                                    false
+                                    item.risk_reasons.includes(
+                                      "no_remediation_path",
+                                    ) === false
                                   }
                                   label="Terminal / Exec"
                                 />
                                 <CapabilityBadge
                                   enabled={
                                     item.risk_reasons.includes(
-                                      "capability_auto_update_disabled"
+                                      "capability_auto_update_disabled",
                                     ) === false
                                   }
                                   label="Auto update"
@@ -1100,7 +1397,10 @@ function ManageWorkbench() {
                                   Annualized: {item.currency_label}
                                   {item.annualized_cost.toFixed(2)}
                                 </div>
-                                <div>Efficiency: {item.efficiency_score.toFixed(1)}</div>
+                                <div>Value: {item.value_score}</div>
+                                <div>
+                                  Efficiency: {item.efficiency_score.toFixed(1)}
+                                </div>
                               </div>
                             </TableCell>
                             <TableCell className="min-w-[200px]">
@@ -1130,27 +1430,87 @@ function ManageWorkbench() {
                                         ? "bg-rose-500/15 text-rose-700 dark:text-rose-300"
                                         : item.underused
                                           ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
                                     )}
                                   >
                                     Risk {item.risk_score}
                                   </span>
                                   {item.metadata_missing_fields?.length ? (
                                     <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
-                                      {item.metadata_missing_fields.length} missing fields
+                                      {item.metadata_missing_fields.length}{" "}
+                                      missing fields
                                     </span>
                                   ) : null}
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
-                                  {item.risk_reasons.slice(0, 4).map((reason) => (
-                                    <span
-                                      key={reason}
-                                      className="rounded-full bg-[var(--accent-3)] px-2 py-1 text-[11px] text-[var(--accent-11)]"
-                                    >
-                                      {humanizeReason(reason)}
-                                    </span>
-                                  ))}
+                                  {item.risk_reasons
+                                    .slice(0, 4)
+                                    .map((reason) => (
+                                      <span
+                                        key={reason}
+                                        className="rounded-full bg-[var(--accent-3)] px-2 py-1 text-[11px] text-[var(--accent-11)]"
+                                      >
+                                        {humanizeReason(reason)}
+                                      </span>
+                                    ))}
                                 </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="min-w-[260px]">
+                              <div className="space-y-2 text-xs text-[var(--accent-11)]">
+                                <div className="flex flex-wrap gap-1.5">
+                                  <span className="rounded-full bg-[var(--accent-3)] px-2 py-1 text-[11px]">
+                                    {formatObservationQuality(
+                                      item.observation_quality,
+                                    )}
+                                  </span>
+                                  <span className="rounded-full bg-[var(--accent-3)] px-2 py-1 text-[11px]">
+                                    Token {formatTokenStatus(item.token_status)}
+                                  </span>
+                                  <span className="rounded-full bg-[var(--accent-3)] px-2 py-1 text-[11px]">
+                                    {formatGovernanceStatus(
+                                      item.governance_status,
+                                    )}
+                                  </span>
+                                  {item.version_drift ? (
+                                    <span className="rounded-full bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                                      Drift {item.version || "Unknown"}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div>
+                                  Agent: {item.version || "Unknown"}
+                                  {item.target_agent_version
+                                    ? ` · target ${item.target_agent_version}`
+                                    : ""}
+                                </div>
+                                <div>
+                                  Offline notify:{" "}
+                                  {item.offline_notification_enabled
+                                    ? "yes"
+                                    : "no"}
+                                  {" · "}Load notify:{" "}
+                                  {item.load_notification_covered
+                                    ? "yes"
+                                    : "no"}
+                                </div>
+                                {item.report_age_minutes !== undefined ? (
+                                  <div>
+                                    Report age: {item.report_age_minutes}m
+                                  </div>
+                                ) : (
+                                  <div>Report age: unavailable</div>
+                                )}
+                                {item.recent_task_failure ? (
+                                  <div className="text-rose-600 dark:text-rose-300">
+                                    Recent task failures detected
+                                  </div>
+                                ) : null}
+                                {item.governance_note ? (
+                                  <div className="line-clamp-2 text-[var(--accent-10)]">
+                                    {item.governance_note}
+                                  </div>
+                                ) : null}
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1158,7 +1518,7 @@ function ManageWorkbench() {
                       })}
                       {filteredItems.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7}>
+                          <TableCell colSpan={8}>
                             <div className="py-6 text-center text-sm text-[var(--accent-11)]">
                               No assets matched the current filters.
                             </div>
@@ -1293,14 +1653,16 @@ function IssuePanel({
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {(item.metadata_missing_fields || []).slice(0, 2).map((field) => (
-                  <span
-                    key={`${item.uuid}-${field}`}
-                    className="rounded-full bg-violet-500/12 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-300"
-                  >
-                    Missing {humanizeField(field)}
-                  </span>
-                ))}
+                {(item.metadata_missing_fields || [])
+                  .slice(0, 2)
+                  .map((field) => (
+                    <span
+                      key={`${item.uuid}-${field}`}
+                      className="rounded-full bg-violet-500/12 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-300"
+                    >
+                      Missing {humanizeField(field)}
+                    </span>
+                  ))}
                 {item.issue_reasons.slice(0, 2).map((reason) => (
                   <span
                     key={`${item.uuid}-${reason}`}
@@ -1399,7 +1761,7 @@ function CapabilityBadge({
         "rounded-full px-2 py-1 text-[11px] font-medium",
         enabled
           ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-          : "bg-slate-500/12 text-slate-600 dark:text-slate-300"
+          : "bg-slate-500/12 text-slate-600 dark:text-slate-300",
       )}
     >
       {label}

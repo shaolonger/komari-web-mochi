@@ -46,6 +46,29 @@ export interface AssetQueueSummary {
   high_risk: number;
 }
 
+export interface AssetGovernanceSummary {
+  server_version: string;
+  target_agent_version: string;
+  notification_channel_enabled: boolean;
+  expire_notification_enabled: boolean;
+  capability_gap_assets: number;
+  version_drift_assets: number;
+  observation_partial_assets: number;
+  observation_stale_assets: number;
+  observation_missing_assets: number;
+  token_expiring_assets: number;
+  token_expired_assets: number;
+  token_revoked_assets: number;
+  offline_notification_covered_assets: number;
+  offline_notification_missing_assets: number;
+  load_notification_covered_assets: number;
+  load_notification_missing_assets: number;
+  recent_task_failure_assets: number;
+  governance_managed_assets: number;
+  governance_observe_assets: number;
+  governance_ignored_assets: number;
+}
+
 export interface AssetPortfolioSummary {
   generated_at: string;
   total_assets: number;
@@ -62,6 +85,14 @@ export interface AssetPortfolioSummary {
   providers: AssetProviderSummary[];
   ignored_providers: AssetProviderSummary[];
   currencies: AssetCurrencySummary[];
+  governance: AssetGovernanceSummary;
+}
+
+export interface AssetScoreFactor {
+  key: string;
+  label: string;
+  points: number;
+  detail?: string;
 }
 
 export interface AssetIssueItem {
@@ -107,12 +138,18 @@ export type AssetInventoryFilterMode =
   | "manual"
   | "ignored"
   | "metadata"
-  | "underused";
+  | "underused"
+  | "capability"
+  | "stale"
+  | "version"
+  | "token"
+  | "observe";
 
 export type AssetInventorySortMode =
   | "risk"
   | "monthly"
   | "remaining"
+  | "value"
   | "expiry"
   | "efficiency"
   | "name";
@@ -146,12 +183,27 @@ export interface AssetInventoryItem {
   annualized_cost: number;
   remaining_value: number;
   efficiency_score: number;
+  value_score: number;
+  value_score_factors?: AssetScoreFactor[];
   days_remaining?: number;
   metadata_missing_fields?: string[];
   risk_reasons: string[];
   risk_score: number;
   high_risk: boolean;
   underused: boolean;
+  observation_quality: string;
+  latest_report_at?: string;
+  report_age_minutes?: number;
+  version: string;
+  version_drift: boolean;
+  target_agent_version?: string;
+  token_status: string;
+  governance_status: string;
+  governance_note?: string;
+  offline_notification_enabled: boolean;
+  load_notification_covered: boolean;
+  recent_task_failure: boolean;
+  capability_gap: boolean;
 }
 
 export interface AssetInventoryResponse {
@@ -168,10 +220,12 @@ export interface AssetBatchEditChanges {
   currency_code?: string;
   asset_ignored?: boolean;
   auto_renewal?: boolean;
+  governance_status?: string;
+  governance_note?: string;
 }
 
 function buildQuery(
-  filters: Record<string, string | number | boolean | undefined>
+  filters: Record<string, string | number | boolean | undefined>,
 ): string {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -187,7 +241,9 @@ function buildQuery(
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload?.message || `Request failed with ${response.status}`);
+    throw new Error(
+      payload?.message || `Request failed with ${response.status}`,
+    );
   }
   return payload.data as T;
 }
@@ -197,10 +253,32 @@ function ensureArray<T>(value: T[] | null | undefined): T[] {
 }
 
 function normalizeSummary(
-  summary: AssetPortfolioSummary
+  summary: AssetPortfolioSummary,
 ): AssetPortfolioSummary {
   return {
     ...summary,
+    governance: summary.governance ?? {
+      server_version: "",
+      target_agent_version: "",
+      notification_channel_enabled: false,
+      expire_notification_enabled: false,
+      capability_gap_assets: 0,
+      version_drift_assets: 0,
+      observation_partial_assets: 0,
+      observation_stale_assets: 0,
+      observation_missing_assets: 0,
+      token_expiring_assets: 0,
+      token_expired_assets: 0,
+      token_revoked_assets: 0,
+      offline_notification_covered_assets: 0,
+      offline_notification_missing_assets: 0,
+      load_notification_covered_assets: 0,
+      load_notification_missing_assets: 0,
+      recent_task_failure_assets: 0,
+      governance_managed_assets: 0,
+      governance_observe_assets: 0,
+      governance_ignored_assets: 0,
+    },
     providers: ensureArray(summary.providers),
     ignored_providers: ensureArray(summary.ignored_providers),
     currencies: ensureArray(summary.currencies),
@@ -218,7 +296,7 @@ function normalizeIssues(issues: AssetIssuesResponse): AssetIssuesResponse {
 }
 
 function normalizeInventory(
-  inventory: AssetInventoryResponse
+  inventory: AssetInventoryResponse,
 ): AssetInventoryResponse {
   return {
     ...inventory,
@@ -226,12 +304,13 @@ function normalizeInventory(
       ...item,
       metadata_missing_fields: ensureArray(item.metadata_missing_fields),
       risk_reasons: ensureArray(item.risk_reasons),
+      value_score_factors: ensureArray(item.value_score_factors),
     })),
   };
 }
 
 export async function getAssetSummary(
-  filters: AssetAdminFilters
+  filters: AssetAdminFilters,
 ): Promise<AssetPortfolioSummary> {
   const response = await fetch(
     `/api/admin/client/asset-summary${buildQuery({
@@ -239,13 +318,13 @@ export async function getAssetSummary(
       currency: filters.currency,
       role: filters.role,
       include_ignored: filters.includeIgnored,
-    })}`
+    })}`,
   );
   return normalizeSummary(await readResponse<AssetPortfolioSummary>(response));
 }
 
 export async function getAssetIssues(
-  filters: AssetAdminFilters & { limit?: number }
+  filters: AssetAdminFilters & { limit?: number },
 ): Promise<AssetIssuesResponse> {
   const response = await fetch(
     `/api/admin/client/asset-issues${buildQuery({
@@ -254,13 +333,13 @@ export async function getAssetIssues(
       role: filters.role,
       include_ignored: filters.includeIgnored,
       limit: filters.limit,
-    })}`
+    })}`,
   );
   return normalizeIssues(await readResponse<AssetIssuesResponse>(response));
 }
 
 export async function getAssetInventory(
-  filters: AssetInventoryFilters
+  filters: AssetInventoryFilters,
 ): Promise<AssetInventoryResponse> {
   const response = await fetch(
     `/api/admin/client/assets${buildQuery({
@@ -272,14 +351,16 @@ export async function getAssetInventory(
       sort: filters.sort,
       order: filters.order,
       limit: filters.limit,
-    })}`
+    })}`,
   );
-  return normalizeInventory(await readResponse<AssetInventoryResponse>(response));
+  return normalizeInventory(
+    await readResponse<AssetInventoryResponse>(response),
+  );
 }
 
 export async function batchEditAssets(
   uuids: string[],
-  changes: AssetBatchEditChanges
+  changes: AssetBatchEditChanges,
 ): Promise<{ updated: number }> {
   const response = await fetch("/api/admin/client/batch-edit", {
     method: "POST",
@@ -291,7 +372,9 @@ export async function batchEditAssets(
 
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(payload?.message || `Request failed with ${response.status}`);
+    throw new Error(
+      payload?.message || `Request failed with ${response.status}`,
+    );
   }
 
   return {
