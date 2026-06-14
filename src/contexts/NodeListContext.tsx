@@ -1,5 +1,6 @@
 import React from "react";
 import { useRPC2Call } from "./RPC2Context";
+import { mapNodePayloadToBasicInfo } from "@/lib/nodePayload";
 
 export type NodeBasicInfo = {
   /** 节点唯一标识符 */
@@ -113,47 +114,9 @@ export const NodeListProvider: React.FC<{ children: React.ReactNode }> = ({
           setNodeList([]);
           return;
         }
-        const list: NodeBasicInfo[] = Object.values(result).map((n: any) => ({
-          uuid: n.uuid,
-          name: n.name,
-          cpu_name: n.cpu_name,
-          virtualization: n.virtualization,
-          arch: n.arch,
-          cpu_cores: n.cpu_cores,
-          os: n.os,
-          kernel_version: n.kernel_version,
-          gpu_name: n.gpu_name,
-          region: n.region,
-          mem_total: n.mem_total,
-          swap_total: n.swap_total,
-          disk_total: n.disk_total,
-          version: n.version ?? "",
-          weight: n.weight ?? 0,
-          price: n.price ?? 0,
-          tags: n.tags ?? "",
-          billing_cycle: n.billing_cycle ?? 0,
-          auto_renewal: n.auto_renewal ?? false,
-          currency: n.currency ?? "",
-          currency_code: n.currency_code ?? "",
-          provider: n.provider ?? "",
-          business_role: n.business_role ?? "",
-          asset_ignored: n.asset_ignored ?? false,
-          public_remark: n.public_remark ?? "",
-          capability_ping: n.capability_ping ?? false,
-          capability_terminal: n.capability_terminal ?? false,
-          capability_remote_exec: n.capability_remote_exec ?? false,
-          capability_remote_control: n.capability_remote_control ?? false,
-          capability_gpu: n.capability_gpu ?? false,
-          capability_auto_update: n.capability_auto_update ?? false,
-          capability_private_ping_targets:
-            n.capability_private_ping_targets ?? false,
-          group: n.group ?? "",
-          traffic_limit: n.traffic_limit ?? 0,
-          traffic_limit_type: n.traffic_limit_type,
-          expired_at: n.expired_at ?? "",
-          created_at: n.created_at ?? "",
-          updated_at: n.updated_at ?? "",
-        }));
+        const list: NodeBasicInfo[] = Object.values(result).map((n: any) =>
+          mapNodePayloadToBasicInfo(n),
+        );
         setNodeList(list);
       })
       .catch(async (err: any) => {

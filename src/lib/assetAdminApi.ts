@@ -252,32 +252,64 @@ function ensureArray<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }
 
-function normalizeSummary(
+const DEFAULT_LIFECYCLE_SUMMARY: AssetLifecycleSummary = {
+  expired: 0,
+  renewal_7d: 0,
+  renewal_30d: 0,
+  active: 0,
+  long_term: 0,
+  manual_renew: 0,
+  ignored: 0,
+  metadata_gap: 0,
+  underused: 0,
+};
+
+const DEFAULT_QUEUE_SUMMARY: AssetQueueSummary = {
+  renewal_attention: 0,
+  metadata_gap: 0,
+  underused: 0,
+  high_risk: 0,
+};
+
+const DEFAULT_GOVERNANCE_SUMMARY: AssetGovernanceSummary = {
+  server_version: "",
+  target_agent_version: "",
+  notification_channel_enabled: false,
+  expire_notification_enabled: false,
+  capability_gap_assets: 0,
+  version_drift_assets: 0,
+  observation_partial_assets: 0,
+  observation_stale_assets: 0,
+  observation_missing_assets: 0,
+  token_expiring_assets: 0,
+  token_expired_assets: 0,
+  token_revoked_assets: 0,
+  offline_notification_covered_assets: 0,
+  offline_notification_missing_assets: 0,
+  load_notification_covered_assets: 0,
+  load_notification_missing_assets: 0,
+  recent_task_failure_assets: 0,
+  governance_managed_assets: 0,
+  governance_observe_assets: 0,
+  governance_ignored_assets: 0,
+};
+
+export function normalizeAssetSummaryPayload(
   summary: AssetPortfolioSummary,
 ): AssetPortfolioSummary {
   return {
     ...summary,
-    governance: summary.governance ?? {
-      server_version: "",
-      target_agent_version: "",
-      notification_channel_enabled: false,
-      expire_notification_enabled: false,
-      capability_gap_assets: 0,
-      version_drift_assets: 0,
-      observation_partial_assets: 0,
-      observation_stale_assets: 0,
-      observation_missing_assets: 0,
-      token_expiring_assets: 0,
-      token_expired_assets: 0,
-      token_revoked_assets: 0,
-      offline_notification_covered_assets: 0,
-      offline_notification_missing_assets: 0,
-      load_notification_covered_assets: 0,
-      load_notification_missing_assets: 0,
-      recent_task_failure_assets: 0,
-      governance_managed_assets: 0,
-      governance_observe_assets: 0,
-      governance_ignored_assets: 0,
+    lifecycle: {
+      ...DEFAULT_LIFECYCLE_SUMMARY,
+      ...(summary.lifecycle ?? {}),
+    },
+    queue: {
+      ...DEFAULT_QUEUE_SUMMARY,
+      ...(summary.queue ?? {}),
+    },
+    governance: {
+      ...DEFAULT_GOVERNANCE_SUMMARY,
+      ...(summary.governance ?? {}),
     },
     providers: ensureArray(summary.providers),
     ignored_providers: ensureArray(summary.ignored_providers),
@@ -285,9 +317,15 @@ function normalizeSummary(
   };
 }
 
-function normalizeIssues(issues: AssetIssuesResponse): AssetIssuesResponse {
+export function normalizeAssetIssuesPayload(
+  issues: AssetIssuesResponse,
+): AssetIssuesResponse {
   return {
     ...issues,
+    counts: {
+      ...DEFAULT_QUEUE_SUMMARY,
+      ...(issues.counts ?? {}),
+    },
     renewal_attention: ensureArray(issues.renewal_attention),
     metadata_gap: ensureArray(issues.metadata_gap),
     underused: ensureArray(issues.underused),
@@ -295,11 +333,12 @@ function normalizeIssues(issues: AssetIssuesResponse): AssetIssuesResponse {
   };
 }
 
-function normalizeInventory(
+export function normalizeAssetInventoryPayload(
   inventory: AssetInventoryResponse,
 ): AssetInventoryResponse {
   return {
     ...inventory,
+    filters: inventory.filters ?? {},
     items: ensureArray(inventory.items).map((item) => ({
       ...item,
       metadata_missing_fields: ensureArray(item.metadata_missing_fields),
@@ -320,7 +359,9 @@ export async function getAssetSummary(
       include_ignored: filters.includeIgnored,
     })}`,
   );
-  return normalizeSummary(await readResponse<AssetPortfolioSummary>(response));
+  return normalizeAssetSummaryPayload(
+    await readResponse<AssetPortfolioSummary>(response),
+  );
 }
 
 export async function getAssetIssues(
@@ -335,7 +376,9 @@ export async function getAssetIssues(
       limit: filters.limit,
     })}`,
   );
-  return normalizeIssues(await readResponse<AssetIssuesResponse>(response));
+  return normalizeAssetIssuesPayload(
+    await readResponse<AssetIssuesResponse>(response),
+  );
 }
 
 export async function getAssetInventory(
@@ -353,7 +396,7 @@ export async function getAssetInventory(
       limit: filters.limit,
     })}`,
   );
-  return normalizeInventory(
+  return normalizeAssetInventoryPayload(
     await readResponse<AssetInventoryResponse>(response),
   );
 }

@@ -9,10 +9,16 @@ import {
   summarizeConvertedField,
   type AssetBillingLike,
 } from "../src/utils/assetMetrics.ts";
+import {
+  normalizeAssetInventoryPayload,
+  normalizeAssetIssuesPayload,
+  normalizeAssetSummaryPayload,
+} from "../src/lib/assetAdminApi.ts";
+import { mapNodePayloadToBasicInfo } from "../src/lib/nodePayload.ts";
 
 const NOW = new Date("2026-06-13T12:00:00.000Z");
 
-type AuditSection = "math";
+type AuditSection = "math" | "compat" | "all";
 
 const auditSection = (process.argv[2] as AuditSection | undefined) ?? "math";
 
@@ -153,9 +159,105 @@ function runMathAudit() {
   console.log("asset-release-audit: math checks passed");
 }
 
+function runCompatibilityAudit() {
+  const mappedLegacyNode = mapNodePayloadToBasicInfo({
+    uuid: "legacy-node",
+    name: "legacy-node",
+    cpu_name: "AMD",
+    mem_total: 1024,
+    disk_total: 2048,
+    updated_at: "2026-06-13T00:00:00.000Z",
+  });
+
+  assert.equal(mappedLegacyNode.billing_cycle, 0, "legacy node billing cycle");
+  assert.equal(mappedLegacyNode.currency, "", "legacy node currency fallback");
+  assert.equal(
+    mappedLegacyNode.asset_ignored,
+    false,
+    "legacy node ignore fallback",
+  );
+  assert.equal(
+    mappedLegacyNode.capability_ping,
+    false,
+    "legacy node capability fallback",
+  );
+  assert.equal(mappedLegacyNode.group, "", "legacy node group fallback");
+
+  const normalizedSummary = normalizeAssetSummaryPayload({
+    generated_at: "2026-06-13T00:00:00.000Z",
+    total_assets: 1,
+    billable_assets: 1,
+    ignored_assets: 0,
+    high_risk_assets: 0,
+    monthly_spend: 0,
+    annualized_spend: 0,
+    remaining_value: 0,
+    renewal_7d_exposure: 0,
+    renewal_30d_exposure: 0,
+    providers: undefined as never,
+    ignored_providers: undefined as never,
+    currencies: undefined as never,
+  } as never);
+  assert.equal(normalizedSummary.lifecycle.metadata_gap, 0, "summary lifecycle fallback");
+  assert.equal(normalizedSummary.queue.high_risk, 0, "summary queue fallback");
+  assert.equal(
+    normalizedSummary.governance.notification_channel_enabled,
+    false,
+    "summary governance fallback",
+  );
+  assert.deepEqual(normalizedSummary.providers, [], "summary provider fallback");
+
+  const normalizedIssues = normalizeAssetIssuesPayload({
+    generated_at: "2026-06-13T00:00:00.000Z",
+    filters: { limit: 8 },
+    renewal_attention: undefined as never,
+    metadata_gap: undefined as never,
+    underused: undefined as never,
+    high_risk: undefined as never,
+  } as never);
+  assert.equal(normalizedIssues.counts.metadata_gap, 0, "issues count fallback");
+  assert.deepEqual(normalizedIssues.high_risk, [], "issues array fallback");
+
+  const normalizedInventory = normalizeAssetInventoryPayload({
+    generated_at: "2026-06-13T00:00:00.000Z",
+    total: 1,
+    items: [
+      {
+        uuid: "legacy-node",
+        name: "legacy-node",
+      } as never,
+    ],
+  } as never);
+  assert.deepEqual(normalizedInventory.filters, {}, "inventory filter fallback");
+  assert.deepEqual(
+    normalizedInventory.items[0].risk_reasons,
+    [],
+    "inventory risk reasons fallback",
+  );
+  assert.deepEqual(
+    normalizedInventory.items[0].metadata_missing_fields,
+    [],
+    "inventory metadata fallback",
+  );
+  assert.deepEqual(
+    normalizedInventory.items[0].value_score_factors,
+    [],
+    "inventory value-score factor fallback",
+  );
+
+  console.log("asset-release-audit: compatibility checks passed");
+}
+
 switch (auditSection) {
   case "math":
     runMathAudit();
+    break;
+  case "compat":
+    runCompatibilityAudit();
+    break;
+  case "all":
+    runMathAudit();
+    runCompatibilityAudit();
     break;
   default:
     throw new Error(`Unknown audit section: ${auditSection}`);

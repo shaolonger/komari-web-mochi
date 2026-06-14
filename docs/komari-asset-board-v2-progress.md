@@ -26,6 +26,7 @@ Key evidence used in this audit:
 - Theme management workbench:
   - `src/pages/manage.tsx`
   - `src/lib/assetAdminApi.ts`
+  - `src/lib/nodePayload.ts`
   - `src/components/Login.tsx`
 - Theme data mapping and metrics:
   - `src/contexts/NodeListContext.tsx`
@@ -185,15 +186,15 @@ Recent feature commits already present in the audited branches:
 | --- | --- | --- | --- | --- | --- |
 | G01 | DONE | P0 | all | Validate calculation rules | `scripts/asset-release-audit.ts` now validates the front-end asset formulas against the same representative billing matrix used by backend asset tests, and `go test ./api/admin -run 'TestBuildClientAssetSummary|TestBuildClientAssetInventoryFiltersAndSorts|TestBuildClientAssetInventoryIncludesGovernanceAndValueSignals'` confirms the server side. |
 | G02 | REVIEW | P1 | all | Desktop / mobile regression | Theme build, targeted lint, Go tests, and mocked `/manage` browser rendering all pass, but a full multi-page desktop/mobile regression matrix is still not recorded. |
-| G03 | REVIEW | P1 | all | Legacy-data compatibility and fallback | Summary/inventory normalization now includes governance defaults and array fallbacks, but full old-data compatibility coverage across every new view still needs a dedicated sweep. |
+| G03 | DONE | P1 | all | Legacy-data compatibility and fallback | `src/lib/nodePayload.ts` now centralizes old-node payload fallback mapping, `src/lib/assetAdminApi.ts` exports explicit summary/issues/inventory normalizers with governance defaults, and `npm run audit:asset-compat` verifies representative legacy payloads. |
 | G04 | TODO | P2 | all | Documentation and release checklist | Release docs, field docs, and rollback checklist are still missing. |
 
 ## 5. Current totals
 
 | Status | Count |
 | --- | ---: |
-| DONE | 38 |
-| REVIEW | 2 |
+| DONE | 39 |
+| REVIEW | 1 |
 | TODO | 1 |
 | DOING | 0 |
 | BLOCKED | 0 |
@@ -204,7 +205,6 @@ Recommended next implementation order based on current gaps:
 
 1. Existing release-readiness closure
    - `G02`
-   - `G03`
    - `G04`
    - `G04`
 
