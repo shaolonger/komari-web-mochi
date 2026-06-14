@@ -16,24 +16,26 @@ import {
 import { useTranslation } from "react-i18next";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import type { NodeBasicInfo } from "@/contexts/NodeListContext";
-import type { LiveData, Record as LiveNodeData } from "@/types/LiveData";
+import type { LiveData } from "@/types/LiveData";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   formatBytes,
-  getTrafficStats,
 } from "@/utils";
 import {
   formatCurrencyAmount,
   formatCurrencySummary,
-  getAnnualizedCost,
   getAssetExpiryInfo,
   getCurrencyKey,
-  getDaysUntilExpiry,
-  getMonthlyCost,
-  getRemainingValue,
   groupAssetFinancials,
   summarizeConvertedField,
 } from "@/utils/assetMetrics";
+import {
+  buildAssetSignalRow,
+  getAssetDecisionTone,
+  getAssetRiskTone,
+  humanizeAssetMetadataField,
+  type AssetSignalRow,
+} from "@/utils/assetSignals";
 import {
   Table,
   TableBody,
@@ -54,6 +56,7 @@ import type { PingSummaryMap } from "@/hooks/usePingSummaryMap";
 
 type SortMode =
   | "risk"
+  | "value"
   | "monthly"
   | "remaining"
   | "expiry"
@@ -61,10 +64,6 @@ type SortMode =
   | "name";
 type FilterMode = AssetFocusFilterMode;
 type ProviderSortMode = "monthly" | "remaining" | "risk" | "count";
-const STALE_REPORT_MINUTES = 10;
-const NETWORK_LOSS_WARN = 5;
-const NETWORK_LATENCY_WARN = 180;
-const NETWORK_JITTER_WARN = 0.6;
 
 interface AssetViewProps {
   nodes: NodeBasicInfo[];
@@ -72,32 +71,7 @@ interface AssetViewProps {
   pingSummaryMap?: PingSummaryMap;
 }
 
-interface AssetRow {
-  node: NodeBasicInfo;
-  live?: LiveNodeData;
-  online: boolean;
-  providerLabel: string;
-  roleLabel: string;
-  monthlyCost: number;
-  annualizedCost: number;
-  remainingValue: number;
-  daysRemaining: number | null;
-  trafficUsage: number;
-  trafficPercentage: number;
-  cpuUsage: number;
-  memoryUsage: number;
-  stale: boolean;
-  avgLatency: number | null;
-  packetLoss: number | null;
-  jitterRatio: number | null;
-  networkIssue: boolean;
-  efficiencyScore: number;
-  underused: boolean;
-  metadataMissingFields: string[];
-  riskScore: number;
-  riskLevel: "high" | "medium" | "low";
-  riskReasons: string[];
-}
+type AssetRow = AssetSignalRow;
 
 interface AssetStatsSettings {
   baseCurrency: string;
@@ -187,11 +161,32 @@ const ActionQueueCard = ({
   </Card>
 );
 
-const getProviderLabel = (node: NodeBasicInfo, fallback: string) =>
-  node.provider?.trim() || node.group?.trim() || fallback;
-
-const getRoleLabel = (node: NodeBasicInfo, fallback: string) =>
-  node.business_role?.trim() || node.public_remark?.trim() || fallback;
+const FilterChip = ({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+      active
+        ? "border-[var(--accent-8)] bg-[var(--accent-4)] text-[var(--accent-12)]"
+        : "border-[var(--accent-5)] bg-[var(--accent-2)] text-[var(--accent-11)] hover:border-[var(--accent-7)]"
+    }`}
+  >
+    <span>{label}</span>
+    <span className="rounded-full bg-[var(--accent-1)] px-1.5 py-0.5 text-[11px] text-[var(--accent-12)]">
+      {count}
+    </span>
+  </button>
+);
 
 const todayDateString = () => new Date().toISOString().slice(0, 10);
 
@@ -262,250 +257,14 @@ const AssetView: React.FC<AssetViewProps> = ({
     return nodes.map((node) => {
       const live = liveData.data?.[node.uuid];
       const online = onlineSet.has(node.uuid);
-      const trafficStats = getTrafficStats(
-        live?.network?.totalUp ?? 0,
-        live?.network?.totalDown ?? 0,
-        node.traffic_limit,
-        node.traffic_limit_type
-      );
-      const pingStats = Object.values(live?.ping ?? {});
-      const fallbackPingStats =
-        pingStats.length > 0
-          ? pingStats
-          : (pingSummaryMap[node.uuid] ?? []).map((task) => ({
-              name: task.name,
-              latest: task.max,
-              avg: task.avg,
-              tail: 0,
-              loss: task.loss,
-              min: task.min,
-              max: task.max,
-            }));
-      const cpuUsage = live?.cpu?.usage ?? 0;
-      const memoryUsage =
-        node.mem_total && live?.ram?.used
-          ? (live.ram.used / node.mem_total) * 100
-          : 0;
-      const daysRemaining = getDaysUntilExpiry(node.expired_at);
-      const updatedAt =
-        typeof live?.updated_at === "string"
-          ? new Date(live.updated_at)
-          : null;
-      const stale =
-        Boolean(live) &&
-        (!updatedAt ||
-          Number.isNaN(updatedAt.getTime()) ||
-          nowMs - updatedAt.getTime() >
-            STALE_REPORT_MINUTES * 60 * 1000);
-      const worstPing = fallbackPingStats.reduce((worst, current) => {
-        if (!worst) return current;
-        const currentScore =
-          current.loss * 4 + current.tail * 3 + current.avg / 100;
-        const worstScore =
-          worst.loss * 4 + worst.tail * 3 + worst.avg / 100;
-        return currentScore > worstScore ? current : worst;
-      }, pingStats[0]);
-      const avgLatency =
-        worstPing && Number.isFinite(worstPing.avg) && worstPing.avg > 0
-          ? worstPing.avg
-          : null;
-      const packetLoss =
-        worstPing && Number.isFinite(worstPing.loss) ? worstPing.loss : null;
-      const jitterRatio =
-        worstPing && Number.isFinite(worstPing.tail) ? worstPing.tail : null;
-      const networkIssue =
-        (packetLoss !== null && packetLoss >= NETWORK_LOSS_WARN) ||
-        (avgLatency !== null && avgLatency >= NETWORK_LATENCY_WARN) ||
-        (jitterRatio !== null && jitterRatio >= NETWORK_JITTER_WARN);
-      const metadataMissingFields: string[] = [];
-      const riskReasons: string[] = [];
-      let riskScore = 0;
-
-      if (!node.provider?.trim()) {
-        metadataMissingFields.push(
-          t("asset.provider", { defaultValue: "Provider" })
-        );
-      }
-      if (!node.business_role?.trim()) {
-        metadataMissingFields.push(
-          t("asset.role", { defaultValue: "Role" })
-        );
-      }
-      if (!node.currency_code?.trim()) {
-        metadataMissingFields.push(
-          t("asset.currencyCode", { defaultValue: "Currency code" })
-        );
-      }
-      if (!node.expired_at) {
-        metadataMissingFields.push(
-          t("asset.expiry", { defaultValue: "Expiry date" })
-        );
-      }
-
-      if (!online) {
-        riskReasons.push(
-          t("asset.riskOffline", { defaultValue: "Offline or stale" })
-        );
-        riskScore += 4;
-      }
-      if (stale) {
-        riskReasons.push(
-          t("asset.riskDataStale", {
-            defaultValue: "Telemetry is stale and should be refreshed",
-          })
-        );
-        riskScore += 2;
-      }
-      if (daysRemaining !== null && daysRemaining <= 7) {
-        riskReasons.push(
-          t("asset.riskRenew7d", {
-            defaultValue: "Renewal required within 7 days",
-          })
-        );
-        riskScore += 4;
-      } else if (daysRemaining !== null && daysRemaining <= 30) {
-        riskReasons.push(
-          t("asset.riskRenew30d", {
-            defaultValue: "Renewal required within 30 days",
-          })
-        );
-        riskScore += 2;
-      }
-      if (
-        daysRemaining !== null &&
-        daysRemaining <= 30 &&
-        !node.auto_renewal &&
-        node.price > 0
-      ) {
-        riskReasons.push(
-          t("asset.riskManualRenew", {
-            defaultValue: "Manual renewal only",
-          })
-        );
-        riskScore += 3;
-      }
-      if (trafficStats.percentage >= 90) {
-        riskReasons.push(
-          t("asset.riskTraffic", {
-            defaultValue: "Traffic usage above 90%",
-          })
-        );
-        riskScore += 3;
-      } else if (trafficStats.percentage >= 75) {
-        riskReasons.push(
-          t("asset.riskTrafficWatch", {
-            defaultValue: "Traffic usage above 75%",
-          })
-        );
-        riskScore += 1;
-      }
-      if (networkIssue) {
-        riskReasons.push(
-          t("asset.riskNetworkQuality", {
-            defaultValue: "Recent ping quality shows elevated latency, loss, or jitter",
-          })
-        );
-        riskScore += 2;
-      }
-      if (node.asset_ignored) {
-        riskReasons.push(
-          t("asset.ignoredLabel", { defaultValue: "Ignored from cost rollups" })
-        );
-      }
-      if (metadataMissingFields.length > 0) {
-        riskReasons.push(
-          t("asset.riskMetadataGap", {
-            defaultValue: "Metadata is incomplete for this asset",
-          })
-        );
-        riskScore += 1;
-      }
-      if (!node.capability_ping) {
-        riskReasons.push(
-          t("asset.riskNoPing", {
-            defaultValue: "No ping capability is enabled on the agent",
-          })
-        );
-        riskScore += 1;
-      }
-      if (!node.capability_terminal && !node.capability_remote_exec) {
-        riskReasons.push(
-          t("asset.riskNoRemediation", {
-            defaultValue: "No terminal or remote-exec remediation path",
-          })
-        );
-        riskScore += 2;
-      }
-      if (!node.capability_auto_update) {
-        riskReasons.push(
-          t("asset.riskNoAutoUpdate", {
-            defaultValue: "Agent auto-update is disabled",
-          })
-        );
-        riskScore += 1;
-      }
-
-      const utilizationSignal = Math.max(
-        cpuUsage / 100,
-        memoryUsage / 100,
-        Math.min(trafficStats.percentage, 100) / 100
-      );
-      const efficiencyScore =
-        getMonthlyCost(node.price, node.billing_cycle) * (1 - utilizationSignal);
-      const underused =
-        online &&
-        node.price > 0 &&
-        !node.asset_ignored &&
-        daysRemaining !== null &&
-        daysRemaining > 30 &&
-        cpuUsage < 10 &&
-        memoryUsage < 25 &&
-        trafficStats.percentage < 15;
-
-      if (underused) {
-        riskReasons.push(
-          t("asset.riskUnderused", {
-            defaultValue: "Low utilization relative to ongoing spend",
-          })
-        );
-        riskScore += 2;
-      }
-
-      const riskLevel =
-        riskScore >= 5 ? "high" : riskScore >= 2 ? "medium" : "low";
-
-      return {
+      return buildAssetSignalRow({
         node,
         live,
         online,
-        providerLabel: getProviderLabel(
-          node,
-          t("asset.unassigned", { defaultValue: "Unassigned" })
-        ),
-        roleLabel: getRoleLabel(
-          node,
-          t("asset.roleUnknown", { defaultValue: "No role label" })
-        ),
-        monthlyCost: getMonthlyCost(node.price, node.billing_cycle),
-        annualizedCost: getAnnualizedCost(node.price, node.billing_cycle),
-        remainingValue: getRemainingValue(node),
-        daysRemaining,
-        trafficUsage: trafficStats.usage,
-        trafficPercentage: trafficStats.percentage,
-        cpuUsage,
-        memoryUsage,
-        stale,
-        avgLatency,
-        packetLoss,
-        jitterRatio,
-        networkIssue,
-        efficiencyScore,
-        underused,
-        metadataMissingFields,
-        riskScore,
-        riskLevel,
-        riskReasons,
-      };
+        pingSummaryTasks: pingSummaryMap[node.uuid] ?? [],
+        nowMs,
+        t,
+      });
     });
   }, [liveData.data, nodes, nowMs, onlineSet, pingSummaryMap, t]);
 
@@ -525,6 +284,10 @@ const AssetView: React.FC<AssetViewProps> = ({
       switch (filterMode) {
         case "high":
           return row.riskLevel === "high";
+        case "medium":
+          return row.riskLevel === "medium";
+        case "low":
+          return row.riskLevel === "low";
         case "expiring":
           return row.daysRemaining !== null && row.daysRemaining <= 30;
         case "manual":
@@ -540,6 +303,14 @@ const AssetView: React.FC<AssetViewProps> = ({
           return row.metadataMissingFields.length > 0;
         case "underused":
           return row.underused;
+        case "retain":
+          return row.decision === "retain";
+        case "observe":
+          return row.decision === "observe";
+        case "renew":
+          return row.decision === "renew";
+        case "reclaim":
+          return row.decision === "reclaim";
         case "offline":
           return !row.online;
         case "traffic":
@@ -561,6 +332,8 @@ const AssetView: React.FC<AssetViewProps> = ({
       switch (sortMode) {
         case "monthly":
           return b.monthlyCost - a.monthlyCost;
+        case "value":
+          return b.valueScore - a.valueScore || b.monthlyCost - a.monthlyCost;
         case "remaining":
           return b.remainingValue - a.remainingValue;
         case "expiry": {
@@ -986,8 +759,43 @@ const AssetView: React.FC<AssetViewProps> = ({
   const highRiskCount = filteredRows.filter(
     (row) => row.riskLevel === "high"
   ).length;
+  const mediumRiskCount = filteredRows.filter(
+    (row) => row.riskLevel === "medium"
+  ).length;
+  const lowRiskCount = filteredRows.filter(
+    (row) => row.riskLevel === "low"
+  ).length;
+  const renewDecisionCount = filteredRows.filter(
+    (row) => row.decision === "renew"
+  ).length;
+  const reclaimDecisionCount = filteredRows.filter(
+    (row) => row.decision === "reclaim"
+  ).length;
+  const observeDecisionCount = filteredRows.filter(
+    (row) => row.decision === "observe"
+  ).length;
+  const retainDecisionCount = filteredRows.filter(
+    (row) => row.decision === "retain"
+  ).length;
   const billableCount = includedRows.filter((row) => row.node.price > 0).length;
   const ignoredAssets = filteredRows.filter((row) => row.node.asset_ignored).length;
+  const protectedUnderusedCount = filteredRows.filter(
+    (row) => row.underusedExcluded
+  ).length;
+  const reclaimWasteSummary = filteredRows
+    .filter((row) => row.underused)
+    .reduce((groups, row) => {
+      const key = row.node.currency || row.node.currency_code || "?";
+      const current = groups.get(key) ?? 0;
+      groups.set(key, current + row.wasteEstimateMonthly);
+      return groups;
+    }, new Map<string, number>());
+  const reclaimWasteLabel =
+    reclaimWasteSummary.size === 0
+      ? "0"
+      : Array.from(reclaimWasteSummary.entries())
+          .map(([currency, amount]) => formatCurrencyAmount(amount, currency))
+          .join(" · ");
 
   const monthlySpend = formatCurrencySummary(currencySummary, "monthly");
   const annualizedSpend = formatCurrencySummary(currencySummary, "annualized");
@@ -1110,13 +918,108 @@ const AssetView: React.FC<AssetViewProps> = ({
           count={queueItems.underusedRows.length}
           hint={t("asset.queueUnderusedHint", {
             defaultValue:
-              "Online assets with ongoing spend but persistently low utilization.",
+              "Low-utilization assets with ongoing spend. Protected nodes stay in Observe instead of Reclaim.",
           })}
           preview={queueItems.underusedRows.slice(0, 3).map((row) => row.node.name)}
           actionLabel={t("asset.queueReview", { defaultValue: "Review" })}
           onAction={() => setFilterMode("underused")}
         />
       </div>
+
+      <Card className="border border-[var(--accent-4)] bg-[var(--accent-1)]">
+        <Flex direction="column" gap="3">
+          <Flex
+            direction={{ initial: "column", lg: "row" }}
+            justify="between"
+            align={{ initial: "start", lg: "center" }}
+            gap="3"
+          >
+            <div>
+              <Text size="3" weight="bold">
+                {t("asset.riskLayersTitle", {
+                  defaultValue: "Risk and decision lanes",
+                })}
+              </Text>
+              <Text size="2" color="gray">
+                {t("asset.riskLayersSubtitle", {
+                  defaultValue:
+                    "Use risk bands and recommended actions to jump straight into the assets that need attention.",
+                })}
+              </Text>
+            </div>
+            <Text size="1" color="gray">
+              {t("asset.reclaimWasteHint", {
+                defaultValue: `Reclaim candidates expose about ${reclaimWasteLabel} of monthly waste`,
+              })}
+            </Text>
+          </Flex>
+
+          <Flex direction="column" gap="2">
+            <Text size="1" color="gray">
+              {t("asset.riskBands", { defaultValue: "Risk bands" })}
+            </Text>
+            <Flex gap="2" wrap="wrap">
+              <FilterChip
+                active={filterMode === "high"}
+                label={t("asset.filterHigh", { defaultValue: "High risk" })}
+                count={highRiskCount}
+                onClick={() => setFilterMode("high")}
+              />
+              <FilterChip
+                active={filterMode === "medium"}
+                label={t("asset.filterMedium", { defaultValue: "Medium risk" })}
+                count={mediumRiskCount}
+                onClick={() => setFilterMode("medium")}
+              />
+              <FilterChip
+                active={filterMode === "low"}
+                label={t("asset.filterLow", { defaultValue: "Low risk" })}
+                count={lowRiskCount}
+                onClick={() => setFilterMode("low")}
+              />
+            </Flex>
+          </Flex>
+
+          <Flex direction="column" gap="2">
+            <Text size="1" color="gray">
+              {t("asset.decisionLanes", { defaultValue: "Recommended actions" })}
+            </Text>
+            <Flex gap="2" wrap="wrap">
+              <FilterChip
+                active={filterMode === "renew"}
+                label={t("asset.decisionRenew", { defaultValue: "Renew" })}
+                count={renewDecisionCount}
+                onClick={() => setFilterMode("renew")}
+              />
+              <FilterChip
+                active={filterMode === "reclaim"}
+                label={t("asset.decisionReclaim", { defaultValue: "Reclaim" })}
+                count={reclaimDecisionCount}
+                onClick={() => setFilterMode("reclaim")}
+              />
+              <FilterChip
+                active={filterMode === "observe"}
+                label={t("asset.decisionObserve", { defaultValue: "Observe" })}
+                count={observeDecisionCount}
+                onClick={() => setFilterMode("observe")}
+              />
+              <FilterChip
+                active={filterMode === "retain"}
+                label={t("asset.decisionRetain", { defaultValue: "Retain" })}
+                count={retainDecisionCount}
+                onClick={() => setFilterMode("retain")}
+              />
+              {protectedUnderusedCount > 0 && (
+                <Badge color="blue" variant="soft">
+                  {t("asset.protectedUnderusedCount", {
+                    defaultValue: `${protectedUnderusedCount} low-utilization assets stayed out of reclaim because they look protected`,
+                  })}
+                </Badge>
+              )}
+            </Flex>
+          </Flex>
+        </Flex>
+      </Card>
 
       <Card className="border border-[var(--accent-4)] bg-[var(--accent-1)]">
         <Flex
@@ -1148,6 +1051,9 @@ const AssetView: React.FC<AssetViewProps> = ({
               >
                 <option value="risk">
                   {t("asset.sortRisk", { defaultValue: "Risk" })}
+                </option>
+                <option value="value">
+                  {t("asset.sortValue", { defaultValue: "Value score" })}
                 </option>
                 <option value="monthly">
                   {t("asset.sortMonthly", { defaultValue: "Monthly" })}
@@ -1183,6 +1089,12 @@ const AssetView: React.FC<AssetViewProps> = ({
                 <option value="high">
                   {t("asset.filterHigh", { defaultValue: "High risk" })}
                 </option>
+                <option value="medium">
+                  {t("asset.filterMedium", { defaultValue: "Medium risk" })}
+                </option>
+                <option value="low">
+                  {t("asset.filterLow", { defaultValue: "Low risk" })}
+                </option>
                 <option value="expiring">
                   {t("asset.filterExpiring", { defaultValue: "Expiring" })}
                 </option>
@@ -1201,6 +1113,18 @@ const AssetView: React.FC<AssetViewProps> = ({
                   {t("asset.filterUnderused", {
                     defaultValue: "Underused",
                   })}
+                </option>
+                <option value="renew">
+                  {t("asset.decisionRenew", { defaultValue: "Renew" })}
+                </option>
+                <option value="reclaim">
+                  {t("asset.decisionReclaim", { defaultValue: "Reclaim" })}
+                </option>
+                <option value="observe">
+                  {t("asset.decisionObserve", { defaultValue: "Observe" })}
+                </option>
+                <option value="retain">
+                  {t("asset.decisionRetain", { defaultValue: "Retain" })}
                 </option>
                 <option value="offline">
                   {t("asset.filterOffline", { defaultValue: "Offline" })}
@@ -1324,16 +1248,20 @@ const AssetView: React.FC<AssetViewProps> = ({
                       </Badge>
                     )}
                     <Badge
-                      color={
-                        row.riskLevel === "high"
-                          ? "red"
-                          : row.riskLevel === "medium"
-                            ? "orange"
-                            : "green"
-                      }
+                      color={getAssetRiskTone(row.riskLevel)}
                       variant="soft"
                     >
-                      {row.riskLevel}
+                      {t("asset.risk", { defaultValue: "Risk" })} {row.riskScore}
+                    </Badge>
+                    <Badge
+                      color={getAssetDecisionTone(row.decision)}
+                      variant="soft"
+                    >
+                      {row.decisionLabel}
+                    </Badge>
+                    <Badge color="sky" variant="soft">
+                      {t("asset.valueScore", { defaultValue: "Value" })}{" "}
+                      {row.valueScore}
                     </Badge>
                     {!row.node.auto_renewal && row.node.price > 0 && (
                       <Badge color="amber" variant="soft">
@@ -1371,6 +1299,33 @@ const AssetView: React.FC<AssetViewProps> = ({
                     </Card>
                   </div>
 
+                  {(row.underused || row.underusedExcluded) && (
+                    <Card className="bg-[var(--accent-2)]">
+                      <Text size="1" color="gray">
+                        {t("asset.wasteEstimate", {
+                          defaultValue: "Estimated monthly waste",
+                        })}
+                      </Text>
+                      <Text size="2" weight="bold">
+                        {row.wasteEstimateMonthly > 0
+                          ? formatCurrencyAmount(
+                              row.wasteEstimateMonthly,
+                              row.node.currency || row.node.currency_code || "?"
+                            )
+                          : "-"}
+                      </Text>
+                      <Text size="1" color="gray">
+                        {row.underused
+                          ? t("asset.decisionReclaim", {
+                              defaultValue: "Reclaim",
+                            })
+                          : t("asset.protectedAsset", {
+                              defaultValue: "Protected asset",
+                            })}
+                      </Text>
+                    </Card>
+                  )}
+
                   <Flex justify="end">
                     <Button
                       size="1"
@@ -1385,6 +1340,18 @@ const AssetView: React.FC<AssetViewProps> = ({
                   </Flex>
 
                   <Flex direction="column" gap="1">
+                    {row.metadataMissingFields.length > 0 && (
+                      <Text size="1" color="gray">
+                        {t("asset.metadataShort", {
+                          defaultValue: "Metadata",
+                        })}
+                        :{" "}
+                        {row.metadataMissingFields
+                          .slice(0, 2)
+                          .map((field) => humanizeAssetMetadataField(field, t))
+                          .join(", ")}
+                      </Text>
+                    )}
                     {row.riskReasons.length === 0 ? (
                       <Text size="1" color="gray">
                         {t("asset.noRisk", {
@@ -1392,7 +1359,7 @@ const AssetView: React.FC<AssetViewProps> = ({
                         })}
                       </Text>
                     ) : (
-                      row.riskReasons.map((reason) => (
+                      row.riskReasons.slice(0, 3).map((reason) => (
                         <Text key={`${row.node.uuid}-${reason}`} size="1" color="gray">
                           • {reason}
                         </Text>
@@ -1416,7 +1383,7 @@ const AssetView: React.FC<AssetViewProps> = ({
                 <TableHead>{t("asset.remainingValue", { defaultValue: "Remaining" })}</TableHead>
                 <TableHead>{t("asset.expiry", { defaultValue: "Expiry" })}</TableHead>
                 <TableHead>{t("asset.utilization", { defaultValue: "Utilization" })}</TableHead>
-                <TableHead>{t("asset.risk", { defaultValue: "Risk" })}</TableHead>
+                <TableHead>{t("asset.riskDecision", { defaultValue: "Risk / Decision" })}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1496,18 +1463,24 @@ const AssetView: React.FC<AssetViewProps> = ({
                     </TableCell>
                     <TableCell>
                       <Flex direction="column" gap="1">
-                        <Badge
-                          color={
-                            row.riskLevel === "high"
-                              ? "red"
-                              : row.riskLevel === "medium"
-                                ? "orange"
-                                : "green"
-                          }
-                          variant="soft"
-                        >
-                          {row.riskLevel}
-                        </Badge>
+                        <Flex gap="2" wrap="wrap">
+                          <Badge
+                            color={getAssetRiskTone(row.riskLevel)}
+                            variant="soft"
+                          >
+                            {t("asset.risk", { defaultValue: "Risk" })} {row.riskScore}
+                          </Badge>
+                          <Badge
+                            color={getAssetDecisionTone(row.decision)}
+                            variant="soft"
+                          >
+                            {row.decisionLabel}
+                          </Badge>
+                          <Badge color="sky" variant="soft">
+                            {t("asset.valueScore", { defaultValue: "Value" })}{" "}
+                            {row.valueScore}
+                          </Badge>
+                        </Flex>
                         <Flex gap="1" wrap="wrap">
                           {!row.node.capability_ping && (
                             <Badge color="gray" variant="soft">
@@ -1538,12 +1511,37 @@ const AssetView: React.FC<AssetViewProps> = ({
                               })}
                             </Badge>
                           )}
+                          {row.underusedExcluded && (
+                            <Badge color="blue" variant="soft">
+                              {t("asset.protectedAsset", {
+                                defaultValue: "Protected asset",
+                              })}
+                            </Badge>
+                          )}
                         </Flex>
+                        {row.metadataMissingFields.length > 0 && (
+                          <Text size="1" color="gray">
+                            {row.metadataMissingFields
+                              .slice(0, 2)
+                              .map((field) => humanizeAssetMetadataField(field, t))
+                              .join(", ")}
+                          </Text>
+                        )}
+                        {(row.underused || row.underusedExcluded) &&
+                          row.wasteEstimateMonthly > 0 && (
+                            <Text size="1" color="gray">
+                              {t("asset.wasteEstimateShort", {
+                                defaultValue: "Waste",
+                              })}
+                              :{" "}
+                              {formatCurrencyAmount(
+                                row.wasteEstimateMonthly,
+                                currencyLabel
+                              )}
+                            </Text>
+                          )}
                         <Text size="1" color="gray">
-                          {row.riskReasons[0] ||
-                            t("asset.noRisk", {
-                              defaultValue: "No active risk indicators",
-                            })}
+                          {row.decisionReason}
                         </Text>
                       </Flex>
                     </TableCell>
@@ -1661,7 +1659,17 @@ const AssetView: React.FC<AssetViewProps> = ({
         providerLabel={selectedRow?.providerLabel ?? ""}
         roleLabel={selectedRow?.roleLabel ?? ""}
         riskLevel={selectedRow?.riskLevel ?? "low"}
+        riskScore={selectedRow?.riskScore ?? 0}
         riskReasons={selectedRow?.riskReasons ?? []}
+        riskBreakdown={selectedRow?.riskBreakdown ?? []}
+        valueScore={selectedRow?.valueScore ?? 0}
+        valueBreakdown={selectedRow?.valueBreakdown ?? []}
+        decisionLabel={selectedRow?.decisionLabel ?? ""}
+        decisionTone={
+          getAssetDecisionTone(selectedRow?.decision ?? "retain")
+        }
+        decisionReason={selectedRow?.decisionReason ?? ""}
+        decisionSummary={selectedRow?.decisionSummary ?? []}
         monthlyCost={selectedRow?.monthlyCost ?? 0}
         annualizedCost={selectedRow?.annualizedCost ?? 0}
         remainingValue={selectedRow?.remainingValue ?? 0}
@@ -1670,6 +1678,17 @@ const AssetView: React.FC<AssetViewProps> = ({
         trafficUsage={selectedRow?.trafficUsage ?? 0}
         cpuUsage={selectedRow?.cpuUsage ?? 0}
         memoryUsage={selectedRow?.memoryUsage ?? 0}
+        avgLatency={selectedRow?.avgLatency ?? null}
+        packetLoss={selectedRow?.packetLoss ?? null}
+        jitterRatio={selectedRow?.jitterRatio ?? null}
+        summary1h={selectedRow?.summary1h ?? []}
+        summary7d={selectedRow?.summary7d ?? []}
+        protectedAsset={selectedRow?.protectedAsset ?? false}
+        protectedReason={selectedRow?.protectedReason ?? null}
+        underused={selectedRow?.underused ?? false}
+        underusedExcluded={selectedRow?.underusedExcluded ?? false}
+        wasteEstimateMonthly={selectedRow?.wasteEstimateMonthly ?? 0}
+        metadataMissingFields={selectedRow?.metadataMissingFields ?? []}
       />
     </div>
   );

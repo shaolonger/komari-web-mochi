@@ -1,11 +1,17 @@
 export type AssetFocusFilterMode =
   | "all"
   | "high"
+  | "medium"
+  | "low"
   | "expiring"
   | "manual"
   | "ignored"
   | "metadata"
   | "underused"
+  | "retain"
+  | "observe"
+  | "renew"
+  | "reclaim"
   | "offline"
   | "traffic"
   | "network"
@@ -23,11 +29,17 @@ export function isAssetFocusFilterMode(
   return [
     "all",
     "high",
+    "medium",
+    "low",
     "expiring",
     "manual",
     "ignored",
     "metadata",
     "underused",
+    "retain",
+    "observe",
+    "renew",
+    "reclaim",
     "offline",
     "traffic",
     "network",

@@ -30,6 +30,7 @@ Key evidence used in this audit:
 - Theme data mapping and metrics:
   - `src/contexts/NodeListContext.tsx`
   - `src/utils/assetMetrics.ts`
+  - `src/utils/assetSignals.ts`
   - `src/components/NodeModernCardStatic.tsx`
   - `src/components/NodeCompactCard.tsx`
   - `src/pages/Index.tsx`
@@ -77,8 +78,8 @@ Recent feature commits already present in the audited branches:
 | FX display and refresh | REVIEW | Theme supports manual normalization state; backend FX source/update flow is not built yet. |
 | Renewal exposure | DONE | 7-day and 30-day exposure exist in theme and backend summary. |
 | High-risk asset identification | DONE | `risk_score`, `high_risk`, issue queues, and filters already exist. |
-| Idle / underused asset identification | REVIEW | Underused filters and queues exist, but waste estimate and key-node exclusion are incomplete. |
-| Asset decision labels | TODO | No retain/observe/renew/reclaim label system yet. |
+| Idle / underused asset identification | DONE | `src/utils/assetSignals.ts` now excludes protected assets from reclaim suggestions, `AssetView.tsx` exposes idle-spend filters/queues, and details show estimated monthly waste. |
+| Asset decision labels | DONE | `src/utils/assetSignals.ts` and `AssetView.tsx` now emit and display retain / observe / renew / reclaim labels with filter support. |
 | Node card asset semantics enhancement | REVIEW | Price and expiry tags exist; role, remark, and auto-renew signaling are not fully surfaced on cards. |
 | Homepage alert strip | DONE | `HomeAssetOverview.tsx` adds homepage alert cards for offline, renew-soon, traffic, network quality, and stale telemetry, with routing into asset filters. |
 | Latency / loss summary frontload | DONE | `HomeAssetOverview.tsx` adds a 1h network watch block with latency/loss/jitter summary support and a graceful empty state. |
@@ -89,16 +90,16 @@ Recent feature commits already present in the audited branches:
 | Token / notification / task-result / agent-version governance | REVIEW | Token lifecycle endpoints exist; a unified governance panel is still missing. |
 | Agent capability reporting | DONE | Agent reports capability flags in `server/basicInfo.go`, server persists them. |
 | Capability gaps included in asset risk | DONE | Backend issue reasons and frontend asset details already surface capability-related risk. |
-| Asset value / risk scoring | REVIEW | `risk_score` and `efficiency_score` exist, but no finished value-score model or scoring explanation layer. |
+| Asset value / risk scoring | DONE | Theme-side value/risk scoring and explanation are now exposed through `src/utils/assetSignals.ts`, `AssetView.tsx`, and `AssetDetailsDialog.tsx`. |
 
 ## 3. Milestones
 
 | Milestone | Goal | Completion condition | Status | Notes |
 | --- | --- | --- | --- | --- |
 | M1 | Asset data foundation | Core asset fields can be maintained, distributed, and consumed | REVIEW | Field model and APIs are done, but maintenance UX and validation loop are only partially closed. |
-| M2 | Asset view MVP | Front-end asset view, KPI, and inventory are usable | REVIEW | Asset view is usable now; detail acceptance scope is still short of full completion. |
+| M2 | Asset view MVP | Front-end asset view, KPI, and inventory are usable | DONE | `AssetView.tsx`, `AssetStatsModal.tsx`, and the drawer-based `AssetDetailsDialog.tsx` now satisfy the MVP asset-view loop. |
 | M3 | Risk and governance loop | Renewals, risk, capability, and ops assurance all visible | REVIEW | Risk queues exist; homepage and governance panels are still incomplete. |
-| M4 | Decision support enhancement | Idle detection, decision labels, and scoring go live | REVIEW | Underused detection is present; decision labels and full scoring are not. |
+| M4 | Decision support enhancement | Idle detection, decision labels, and scoring go live | REVIEW | Theme-side decision support is live, but server-side traceable value-scoring (`C06`) still needs to be finalized. |
 | M5 | Release readiness | Regression passed, docs complete, ready to ship | TODO | Still missing final regression matrix, compatibility audit, and release docs. |
 
 ## 4. Detailed task board
@@ -111,16 +112,16 @@ Recent feature commits already present in the audited branches:
 | A02 | DONE | P0 | `komari-web-mochi` | Asset KPI header | `AssetView.tsx` already shows filtered assets, monthly, annualized, remaining, renewal, and risk KPIs. |
 | A03 | DONE | P0 | `komari-web-mochi` | `AssetStatsModal` statistics dialog | `AssetStatsModal.tsx` exists and is triggered from `AssetView.tsx`. |
 | A04 | DONE | P0 | `komari-web-mochi` | Asset inventory main view | `AssetView.tsx` supports search, sort, filter, mobile cards, table view, and empty-state handling. |
-| A05 | REVIEW | P1 | `komari-web-mochi` | Asset detail drawer / side panel | `AssetDetailsDialog.tsx` exists and shows provider, role, billing, capabilities, and risk; 1h/7d operational summary is still incomplete and current UI is a dialog rather than a drawer. |
+| A05 | DONE | P1 | `komari-web-mochi` | Asset detail drawer / side panel | `AssetDetailsDialog.tsx` now uses the drawer component, shows provider/role/billing/capabilities/risk, and includes 1h operational summary plus 7d action summary without losing list filter state. |
 | A06 | TODO | P1 | `komari-web-mochi` | Renewal timeline | No dedicated timeline view or clickable time-bucket flow is present yet. |
-| A07 | REVIEW | P1 | `komari-web-mochi` | Risk layered filtering | High-risk and other derived filters exist; medium/low layered filtering and full rule explanation are not complete. |
+| A07 | DONE | P1 | `komari-web-mochi` | Risk layered filtering | `AssetView.tsx` now supports high / medium / low risk bands, one-click chips, and consistent risk explanations sourced from `src/utils/assetSignals.ts`. |
 | A08 | DONE | P1 | `komari-web-mochi` | Homepage top alert summary strip | `HomeAssetOverview.tsx` now surfaces offline, renew-soon, traffic, network-quality, and stale-telemetry alerts, and verified routing into asset filters. |
 | A09 | REVIEW | P1 | `komari-web-mochi` | Node card asset semantics enhancement | `NodeModernCardStatic.tsx` and `NodeCompactCard.tsx` show asset price and expiry tags, but `public_remark`, business role, and explicit auto-renew state are not fully expressed. |
 | A10 | DONE | P1 | `komari-web-mochi` | Frontload latency / packet loss summary | Homepage now includes a `1h network watch` block that surfaces average latency, packet loss, and jitter support with ping-summary fallback and empty-state handling. |
-| A11 | TODO | P1 | `komari-web-mochi` | Asset decision label system | No retain/observe/renew/reclaim label system yet. |
-| A12 | REVIEW | P1 | `komari-web-mochi` | Idle / underused asset view | Underused detection and filtering exist in `AssetView.tsx` and `/manage`, but key-node exclusion and waste estimate are not finished. |
+| A11 | DONE | P1 | `komari-web-mochi` | Asset decision label system | `AssetView.tsx` and `AssetDetailsDialog.tsx` now show retain / observe / renew / reclaim labels, reasons, summaries, and filter lanes. |
+| A12 | DONE | P1 | `komari-web-mochi` | Idle / underused asset view | `src/utils/assetSignals.ts` adds protected-node exclusion and waste estimation; `AssetView.tsx` surfaces reclaim candidates separately from protected low-utilization assets. |
 | A13 | REVIEW | P2 | `komari-web-mochi` | Provider / group / currency aggregation analysis | Provider and currency aggregation are present; group-specific aggregation switching is still incomplete. |
-| A14 | REVIEW | P2 | `komari-web-mochi` | Asset value score and risk score display | `/manage` shows `risk_score` and `efficiency_score`, but no complete value-score display/explanation system exists across the theme. |
+| A14 | DONE | P2 | `komari-web-mochi` | Asset value score and risk score display | `AssetView.tsx` now shows sortable value/risk scores and `AssetDetailsDialog.tsx` explains their breakdowns for every asset. |
 
 ### B. Front-end data mapping and calculation rules
 
@@ -128,9 +129,9 @@ Recent feature commits already present in the audited branches:
 | --- | --- | --- | --- | --- | --- |
 | B01 | DONE | P0 | `komari-web-mochi` | Complete theme-side data mapping | `NodeListContext.tsx` already maps `public_remark`, `auto_renewal`, `provider`, `business_role`, `currency_code`, `asset_ignored`, and capability flags. |
 | B02 | DONE | P0 | `komari-web-mochi` | Asset metrics helper layer | `src/utils/assetMetrics.ts` centralizes monthly, annualized, remaining value, renewal exposure, grouping, and FX normalization helpers. |
-| B03 | REVIEW | P1 | `komari-web-mochi` | Risk rule calculation layer | Risk rules exist in `AssetView.tsx` and are also reflected in backend APIs, but they are not yet centralized into a dedicated reusable front-end rule module. |
-| B04 | REVIEW | P1 | `komari-web-mochi` | Underused and decision rule layer | Underused logic exists, but decision labels and key-node exclusions are still missing. |
-| B05 | TODO | P2 | `komari-web-mochi` | Score-consumption layer | No dedicated score explanation/consumption layer for value/risk scoring yet. |
+| B03 | DONE | P1 | `komari-web-mochi` | Risk rule calculation layer | `src/utils/assetSignals.ts` now centralizes risk-band calculation, risk reasons, and reusable signals consumed by the asset view. |
+| B04 | DONE | P1 | `komari-web-mochi` | Underused and decision rule layer | `src/utils/assetSignals.ts` now centralizes underused detection, protected-asset exclusion, waste estimates, and retain/observe/renew/reclaim decisions. |
+| B05 | DONE | P2 | `komari-web-mochi` | Score-consumption layer | `AssetView.tsx` and `AssetDetailsDialog.tsx` now consume value/risk scores with sortable list display and detailed explanation blocks. |
 
 ### C. Server-side data model and APIs
 
@@ -183,9 +184,9 @@ Recent feature commits already present in the audited branches:
 
 | Status | Count |
 | --- | ---: |
-| DONE | 16 |
-| REVIEW | 18 |
-| TODO | 7 |
+| DONE | 24 |
+| REVIEW | 12 |
+| TODO | 5 |
 | DOING | 0 |
 | BLOCKED | 0 |
 
@@ -194,11 +195,9 @@ Recent feature commits already present in the audited branches:
 Recommended next implementation order based on current gaps:
 
 1. Asset detail and risk closure
-   - `A05`
-   - `A07`
-   - `A11`
-   - `A12`
-   - `A14`
+   - `A06`
+   - `A09`
+   - `A13`
 2. Server and governance closure
    - `C04`
    - `D01`
